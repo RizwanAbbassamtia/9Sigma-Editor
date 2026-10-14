@@ -36,7 +36,7 @@ its M5.1 preview engine. The copy happens once; afterwards this repo is independ
 `llm/*`, `providers/{voice,image,research}/*` except the mock image placeholder helper if the
 render tests need it, `pipeline/*` (the stage engine; see section 3 for the replacement),
 `policy/*` except the checks named in section 4, the Automation / Master Sheet / Settings-users
-screens, the channel form, the storyboard board (the Storyboard tab comes in v0.3), demo videos,
+screens, the channel form, the storyboard board (no storyboard tab in this app, by the owner's decision of 2026-10-14), demo videos,
 CashCow docs. `yt-dlp`, `anthropic`, `google-genai`, `youtube-transcript-api` leave
 `pyproject.toml`.
 

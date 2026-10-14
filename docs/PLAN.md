@@ -56,8 +56,9 @@ states, undo and history. v0.1 below is the foundation (the copied engine runnin
   (markers, popups, captions, scenes, voice, music), trim handles, snapping, ripple moves,
   inspector with motion start and end frames, undo and history, keyboard shortcuts, render menu
   with "out of date" tracking, range render and Compare.
-- **v0.3:** Storyboard tab (cards view of the same timeline), hand-off to CapCut, DaVinci Resolve
-  and Kdenlive, caption styles and presets, sound effects lane, multi-track music.
+- **v0.3:** hand-off to CapCut, DaVinci Resolve and Kdenlive, caption styles and presets, sound
+  effects lane, multi-track music. (No storyboard tab: the owner decided on 2026-10-14 that the
+  storyboard stays in CashCow Studio only; 9Sigma Editor is a pure editor.)
 - **v0.4:** optional AI help through the person's own Claude sign-in: Suggest camera moves and
   transitions, Suggest captions from the narration (when a speech-to-text tool is configured),
   Ask Claude.
