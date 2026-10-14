@@ -1,0 +1,54 @@
+# Secrets and local settings
+.env
+.env.*
+!.env.example
+config/local.*
+*.key
+*.pem
+
+# Generated media and per-video work folders (kept on each user's local drive).
+# Anchored to the repo root: frontend/src/components/projects/ is source code.
+/projects/
+/exports/
+/cache/
+*.mp4
+*.mov
+*.wav
+*.mp3
+*.png
+*.jpg
+*.jpeg
+*.webp
+!docs/**/*.png
+!templates/**/*.png
+!tests/fixtures/**/*.png
+!tests/fixtures/**/*.jpg
+!tests/fixtures/**/*.jpeg
+# Transition previews for the pickers (tools/make_transition_previews.py) are committed.
+!frontend/public/transitions/*.webp
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Node (editor front-end)
+node_modules/
+frontend/dist/
+.next/
+out/
+*.tsbuildinfo
+
+# Editors and OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+~$*.xlsx
