@@ -38,7 +38,15 @@ local folder `F:\9SigmaEditor`.
 
 ## 3. Releases
 
-- **v0.1 (first):** the trimmed copy runs as its own app. New edit from files: pictures and
+The owner's target (2026-10-14, "I need this one as a separate app: the editor explained
+script"): the app the team gets is the **Edit room shown in the "editor, explained" video**
+(`docs/reference/editor-explained-script.md`, designed in `docs/design/EDITOR-DESIGN.md`
+section 4 and the mockup `docs/design/mockup-editor.html`): the four zones, the timeline lanes
+with trim handles and snapping, the inspector, the transitions library, the render menu, the
+states, undo and history. v0.1 below is the foundation (the copied engine running as its own app);
+**v0.2 is the first release given to the team**, because it is the editor from the video.
+
+- **v0.1 (foundation):** the trimmed copy runs as its own app. New edit from files: pictures and
   clips in order, narration audio, music, caption text typed or from an SRT/VTT file, a simple
   timing tool (drag sentence starts on the waveform). The Edit review screen as the main screen,
   live preview, transitions picker, popups and captions on or off, music with ducking, render
@@ -62,10 +70,10 @@ render near real time on a 4-core i7). Pydantic models are the source of truth, 
 `frontend/src/types/`. Tests and the full checks (ruff, pytest, typecheck, build) before every
 commit. The owner pushes; releases go on the GitHub releases page like CashCow Studio.
 
-## 5. Open questions for the owner
+## 5. Decisions taken with the recommended answers (2026-10-14)
 
-1. Captions without AI need either typed sentences with the timing tool or an SRT/VTT file; is
-   that acceptable for v0.1? (Recommended: yes; speech-to-text comes with v0.4 through a tool.)
-2. Should v0.1 include the 2.5D parallax add-on (adds 60 MB to the install)? (Recommended: yes.)
-3. Repo visibility: public, like CashCow Studio, so the in-app update can read releases without a
-   token? (Recommended: public.)
+1. Captions without AI come from typed sentences with the timing tool or an SRT/VTT file in v0.1;
+   speech-to-text arrives with v0.4 through a configured tool.
+2. The 2.5D parallax add-on is included (about 60 MB more in the install).
+3. The repository is public, like CashCow Studio, so the in-app update reads releases without a
+   token.
