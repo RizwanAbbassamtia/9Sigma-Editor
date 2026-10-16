@@ -52,15 +52,20 @@ presets, the export with checksum, the new shell.
 ## 2. Shell and routes
 
 `/` = the Edit room list ("My edits": name, shape, length, status, last change; New edit; Open;
-Rename; Open folder; Delete to the Recycle Bin), `/edit/:id` = the editor (today's EditReview
-layout as the main screen: live preview monitor, scene strip with a transition picker per cut,
-then the panels Scenes, Timeline (popups and captions switches, music, volume and dip), Render,
-Captions, Timing on the left and Checks, Export, Details on the right), `/renders` = every
-rendered file, `/settings` = Folders, Render (sizes, quality, encoder speed, H.265 copy, 4K,
-captions, transition pack, camera move), Your account (password), Health checks, About (version,
-update check). A 48 px rail with My edits, Renders, Settings, a light/dark switch, and at the
-bottom the signed-in person's initials with Sign out; `/login` = the sign-in page (section 0.3).
-Dark theme as the CashCow editor tokens.
+Rename; Open folder; Delete to the Recycle Bin), `/edit/:id` = the Edit room, a full-window
+workspace laid out like CapCut and Premiere (docs/design/EDITOR-DESIGN.md section 4, the owner's
+decision of 2026-10-16, see 7.14): a 48 px rail, a 44 px top bar (back, title, undo and redo,
+the save state, the Timeline view, Open folder, the amber Render menu, the Checks pill, More),
+the library on the left (Pictures, Motion, Transitions, Text, Music), the live preview monitor
+in the middle with the transport, the inspector on the right (it follows the selection: scene,
+cut, popup, caption, sentence, pause, music, marker, or the video), and the timeline below
+(toolbar; header timecode; overview strip; ruler; the lanes Markers, Popups, Captions, Scenes,
+Voice, Music; the playhead). `/renders` = every rendered file, `/settings` = Folders, Render
+(sizes, quality, encoder speed, H.265 copy, 4K, captions, transition pack, camera move), Your
+account (password), Health checks, About (version, update check). The other pages keep the
+48 px rail with My edits, Renders, Settings, a light/dark switch, and at the bottom the
+signed-in person's initials with Sign out; `/login` = the sign-in page (section 0.3). The Edit
+room uses the dark workspace tokens of the design; the other pages the CashCow editor tokens.
 
 ## 3. New edit from files (`api/projects.py`: `POST /api/edits`, `models/edit_input.py`)
 
@@ -80,18 +85,25 @@ longer) and are muted unless "keep the clip's sound" is ticked.
 
 ## 4. Editor screen (v0.1 scope) and checks
 
-Everything the CashCow Edit review offers today, plus: the timing tool (the Timing panel: one
-row per sentence with its start and end, Play from here, Start 0.1 s or 0.5 s earlier or later,
-Move this and the rest 0.5 s earlier or later; `POST /api/edits/{id}/timing`), the caption
-editor (the Captions panel: edit the text and the times in a table, Save, Save as SRT; the ASS
-writer re-runs at the next render), "Replace" per scene, Move up / Move down (which moves the
-sentences with the scene), "Add picture or clip", Remove, music volume and dip (uses the ducking
-stem), "Build the timeline again", and the quality presets of section 5. Checks kept: music
-licence note present, loudness, true peaks, caption speed (characters per second), picture
-missing. The simple choices and the scene changes go to the server at once; a changed transition
-is saved as the whole timeline shortly after the last change (`PUT /api/edits/{id}/timeline`
-with the revision; a stale revision is refused with 409). v0.1 has no undo in the browser: the
-Recycle Bin, "Build the timeline again" and the revision are the safety net (see 7.12).
+The Edit room of docs/design/EDITOR-DESIGN.md section 4, in v0.1: select a scene, a cut, a
+popup, a caption, a sentence, a pause, the music or a marker and the inspector shows its fields;
+drag a cut and it snaps to a sentence start (Shift: a word, Alt: any frame; each scene keeps at
+least 2 s; transitions are re-clamped to a quarter of the shorter scene); split (S) and merge
+(Delete); move, trim and re-time popups (edges snap to words); fix a caption's text and times,
+split or merge cues; shorten a pause (the one edit that moves everything after it, through
+`POST /api/edits/{id}/timing`); pick a camera move, a transition (Apply to all, Vary all), a
+caption look, the music and its volume and dip; markers (M) and popups (T) at the playhead; the
+in-out range and the loop; 20 undo steps in the browser (Ctrl+Z, Ctrl+Y) over the whole
+document; the Render menu (sizes with Not rendered / Out of date / Rendered, captions, popups,
+quality, Render, Range only, progress, Cancel, Export, Open the export folder); the keyboard map
+of the design's section 6 (the ? sheet lists it). Replace a picture, add a picture or clip,
+reorder scenes and remove a scene go to the server at once (the timeline is built again there);
+everything else is the document in the browser, saved whole shortly after the last change
+(`PUT /api/edits/{id}/timeline` with the revision; a stale revision is refused with 409 and the
+page offers to reload). Checks kept: music licence note present, loudness, true peaks, caption
+speed (characters per second), picture missing. Not in v0.1 (see 7.14): dragging the motion
+boxes on the monitor, dragging a scene to reorder it, the Compare-with-render wipe, lane sizes,
+resizable panels.
 
 ## 5. Render and export
 
@@ -176,11 +188,24 @@ without Deno (this app downloads nothing from YouTube); the update check reads
     not installed (scenes fall back to the Ken Burns move, as the health check says).
 13. **Front end.** The copied screens were reduced to this app: `AppShell` (rail, title bar
     with the health pill and the update notice), `LoginPage`, `EditsPage` with `NewEditDialog`,
-    `EditorPage` with the panels of section 2, `RendersPage`, `SettingsPage`. The copied
-    components that need no CashCow concept (the live preview engine, the scene strip, the
-    transition picker, the render sizes, the music picker, the UI kit) are kept as they were.
-    The preview fixtures (`frontend/src/preview/fixtures/`) are made again from this engine with
+    `RendersPage`, `SettingsPage`. The copied components that need no CashCow concept (the live
+    preview engine, the transition picker, the UI kit) are kept as they were. The preview
+    fixtures (`frontend/src/preview/fixtures/`) are made again from this engine with
     `tools/make_preview_fixtures.py`.
+14. **The Edit room** (the owner, 2026-10-16 evening, after seeing the first panel layout:
+    "follow the CapCut / Adobe face, same buttons, same layout" as the demo video of the editor
+    design). `/edit/:id` is the full-window workspace of docs/design/EDITOR-DESIGN.md sections 2
+    and 4 (`frontend/src/workspace/`): `WorkspaceShell`, `EditorWorkspace` (the document, the
+    history, the autosave, the keyboard map), `TopBar` with `RenderMenu`, `Library`, `Monitor`
+    (the preview engine in its monitor chrome plus the transport), `Inspector`, `Timeline`
+    (lanes, ruler, overview strip, drags with snapping), and `document.ts` (the pure edits:
+    cuts, splits, merges, motion, transitions, popups, captions, markers, music, the history).
+    The scene plan follows the saved timeline (`builder.sync_plan_from_timeline` rebuilds the
+    plan's scenes from it, so splits, merges and moved cuts survive a rebuild), and each render
+    row says whether it is out of date (`RenderOutput.stale`, the render key compared). What
+    the design describes and v0.1 leaves for later: the motion boxes on the monitor, drag to
+    reorder (Move earlier / later in the scene's More menu instead), Compare with render, the
+    Hand off menu, lane sizes, resizable panels, Ask Claude.
 
 ## 8. Tests and proof
 

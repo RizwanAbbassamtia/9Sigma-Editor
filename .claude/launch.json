@@ -6,6 +6,12 @@
       "runtimeExecutable": "F:/9SigmaEditor/.venv/Scripts/python.exe",
       "runtimeArgs": ["-m", "sigma_editor.cli", "serve"],
       "port": 8766
+    },
+    {
+      "name": "9sigma-frontend-dev",
+      "runtimeExecutable": "C:/Program Files/nodejs/npm.cmd",
+      "runtimeArgs": ["--prefix", "frontend", "run", "dev"],
+      "port": 5173
     }
   ]
 }

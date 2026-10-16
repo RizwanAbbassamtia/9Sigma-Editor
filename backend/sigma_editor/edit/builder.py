@@ -38,6 +38,7 @@ from ..models.storyboard import (
     MOTION_PRESETS,
     Scene,
     SceneImage,
+    SceneLocks,
     SceneMotion,
     ScenePopup,
     SceneTransition,
@@ -49,6 +50,7 @@ from ..render.presets import load_render_config
 from ..render.timeline_builder import (
     BuildRequest,
     TimelineBuildError,
+    _image_size,
     build_timeline,
     parse_timing,
     resolve_scene_images,
@@ -775,36 +777,91 @@ def remove_scene(
     return _finish_scene_change(project, store, settings, plan, sources, timing)
 
 
+def _fraction_rect(rect: list[float], size: tuple[int, int] | None) -> list[float]:
+    """A timeline rectangle (source-picture pixels) as fractions of the picture."""
+    if size is None or size[0] <= 0 or size[1] <= 0:
+        return [0.0, 0.0, 1.0, 1.0]
+    width, height = size
+    x, y, w, h = (float(v) for v in rect[:4])
+    return [
+        round(min(max(x / width, 0.0), 1.0), 4), round(min(max(y / height, 0.0), 1.0), 4),
+        round(min(max(w / width, 0.0), 1.0), 4), round(min(max(h / height, 0.0), 1.0), 4),
+    ]
+
+
 def sync_plan_from_timeline(project: Project, timeline: Timeline) -> None:
-    """After the editor saved the timeline: the per-scene choices (transition, motion,
-    popup) go back into the scene plan so a rebuild keeps them."""
+    """After the editor saved the timeline: the scene plan is rebuilt from it (the scenes in
+    their order, each with its picture, its sentences, its camera move, its transition and
+    its popup), so a rebuild from the timing keeps every choice, including a scene that was
+    split, merged or re-cut in the editor."""
     folder = Path(project.folder)
     plan = read_scene_plan(folder)
-    if plan is None or len(plan.scenes) != len(timeline.scenes):
+    if plan is None:
         return
-    popup_by_scene: dict[int, str] = {}
+    by_image: dict[str, Scene] = {}
+    for scene in plan.scenes:
+        if scene.image.path and scene.image.path not in by_image:
+            by_image[scene.image.path] = scene
+    popup_by_scene: dict[int, Any] = {}
     for popup in timeline.popups:
-        popup_by_scene.setdefault(popup.scene, popup.text)
-    changed = False
-    for scene, cut in zip(plan.scenes, timeline.scenes, strict=True):
-        if (scene.transition_out.type != cut.transition_out.type
-                or abs(scene.transition_out.duration_s - cut.transition_out.duration_s) > 1e-6):
-            scene.transition_out = SceneTransition(
+        popup_by_scene.setdefault(popup.scene, popup)
+    sizes: dict[str, tuple[int, int] | None] = {}
+    scenes: list[Scene] = []
+    for position, cut in enumerate(timeline.scenes):
+        old = plan.scenes[position] if position < len(plan.scenes) else None
+        if old is None or old.image.path != cut.image:
+            old = by_image.get(cut.image, old)
+        if cut.image not in sizes:
+            try:
+                sizes[cut.image] = _image_size(folder / cut.image)
+            except (OSError, ValueError):
+                sizes[cut.image] = None
+        size = sizes[cut.image]
+        sentence_ids = list(cut.sentence_ids) or (list(old.sentence_ids) if old else [])
+        if not sentence_ids and scenes:
+            sentence_ids = list(scenes[-1].sentence_ids)
+        popup = popup_by_scene.get(cut.index)
+        if popup is not None:
+            popup_position = popup.position
+            key_sentence = popup.anchor.sentence_id if popup.anchor else None
+        else:
+            popup_position = old.popup.position if old else "bottom-left"
+            key_sentence = old.popup.key_sentence_id if old else None
+        kept = set(old.edited if old else [])
+        scene = Scene(
+            index=position,
+            sentence_ids=sentence_ids or ["s-001"],
+            narration=old.narration if old else "",
+            image_prompt=old.image_prompt if old else "",
+            popup=ScenePopup(
+                text=popup.text if popup is not None and popup.text.strip() else None,
+                style=old.popup.style if old else "",
+                position=popup_position,  # type: ignore[arg-type]
+                key_sentence_id=key_sentence,
+            ),
+            motion=SceneMotion(
+                preset=cut.motion.preset,  # type: ignore[arg-type]
+                start_rect=_fraction_rect(list(cut.motion.start_rect), size),
+                end_rect=_fraction_rect(list(cut.motion.end_rect), size),
+                ease=cut.motion.ease,
+                style=cut.motion.style,
+                strength=cut.motion.strength,
+            ),
+            transition_out=SceneTransition(
                 type=cut.transition_out.type, duration_s=cut.transition_out.duration_s
-            )
-            scene.mark_edited("transition_out")
-            changed = True
-        if scene.motion.preset != cut.motion.preset:
-            scene.motion = SceneMotion(preset=cut.motion.preset)  # type: ignore[arg-type]
-            scene.mark_edited("motion")
-            changed = True
-        text = popup_by_scene.get(cut.index)
-        if (scene.popup.text or None) != (text or None):
-            scene.popup = ScenePopup(text=text or None, key_sentence_id=scene.popup.key_sentence_id)
-            scene.mark_edited("popup")
-            changed = True
-    if changed:
-        write_scene_plan(folder, plan)
+            ),
+            image=SceneImage(path=cut.image, status="approved"),
+            locked=old.locked if old else SceneLocks(),
+            notes=list(old.notes) if old else [],
+            title=old.title if old else "",
+            clip=old.clip if old else None,
+            clip_duration_s=old.clip_duration_s if old else None,
+            keep_sound=old.keep_sound if old else False,
+            edited=sorted(kept | {"motion", "transition_out", "popup", "sentence_ids", "image"}),
+        )
+        scenes.append(scene)
+    plan.scenes = scenes
+    write_scene_plan(folder, plan)
 
 
 def project_state_summary(project: Project) -> dict[str, Any]:

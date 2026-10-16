@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import shutil
 import uuid
 from pathlib import Path
@@ -47,6 +48,7 @@ from ..storage.project_store import EDIT_DIR, EXPORT_DIR, ProjectStoreError
 from .deps import JobsDep, SettingsDep, StoreDep
 from .edits import load_project, translate
 
+log = logging.getLogger(__name__)
 router = APIRouter(prefix="/api", tags=["editing"])
 
 NO_TIMELINE = "This edit has no timeline yet. Add pictures or clips first."
@@ -241,7 +243,10 @@ async def save_timeline(
         timeline.project_id = project.id
         timeline.revision = current.revision + 1
         write_timeline(stage_dir, timeline)
-        builder.sync_plan_from_timeline(project, timeline)
+        try:
+            builder.sync_plan_from_timeline(project, timeline)
+        except Exception:  # noqa: BLE001 - the timeline is saved; the plan is only for rebuilds
+            log.exception("The scene plan could not follow the saved timeline")
         project.duration_s = round(timeline.duration_s, 3)
         store.save(project)
         return TimelineSaved(revision=timeline.revision, timeline=timeline)

@@ -10,6 +10,7 @@ from typing import Any
 
 from fastapi.testclient import TestClient
 
+from sigma_editor.edit.builder import read_scene_plan
 from sigma_editor.edit.renderer import read_state
 from sigma_editor.render import ffmpeg as ff
 from test_render_fixtures import (
@@ -182,6 +183,23 @@ def test_choices_and_the_timeline_autosave(client: TestClient, render_tmp: Path)
     rebuilt = client.post(f"{base}/edit", json={"rebuild": True}).json()
     assert rebuilt["summary"]["scene_count"] == 4
     assert rebuilt["scenes"][0]["transition"] == "push_left"  # the person's cut is kept
+
+    # A scene split in the editor (two scenes, one picture) reaches the scene plan too, so a
+    # rebuild keeps the split.
+    doc = rebuilt["timeline"]
+    first = doc["scenes"][0]
+    middle = round((first["start_s"] + first["end_s"]) / 2, 3)
+    left = {**first, "end_s": middle, "sentence_ids": first["sentence_ids"][:1]}
+    right = {**first, "start_s": middle, "sentence_ids": first["sentence_ids"][1:]}
+    doc["scenes"] = [left, right, *[{**s, "index": s["index"] + 1} for s in doc["scenes"][1:]]]
+    right["index"] = 1
+    split = client.put(f"{base}/timeline", json={"timeline": doc, "revision": doc["revision"]})
+    assert split.status_code == 200, split.text
+    plan = read_scene_plan(Path(project["folder"]))
+    assert plan is not None and len(plan.scenes) == 5
+    assert plan.scenes[0].image.path == plan.scenes[1].image.path
+    again = client.post(f"{base}/edit", json={"rebuild": True}).json()
+    assert again["summary"]["scene_count"] == 5
 
 
 # Scenes ----------------------------------------------------------------------------------------

@@ -593,6 +593,11 @@ class RenderOutput(BaseModel):
     reuse_note: str | None = Field(
         default=None, description='plain English, e.g. "Reused 2 of 3 scene clips."'
     )
+    # 9Sigma Editor: the Render menu says "Out of date" when the timeline changed since.
+    stale: bool = Field(default=False, description="the timeline changed since this render")
+    changes: int | None = Field(
+        default=None, description="how many saves happened since this render (when known)"
+    )
 
 
 class MusicTrackInfo(BaseModel):

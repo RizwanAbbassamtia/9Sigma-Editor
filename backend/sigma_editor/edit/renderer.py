@@ -460,12 +460,45 @@ def popup_assets(
 # The editor payload ----------------------------------------------------------------------------
 
 
+def current_render_key(
+    folder: Path, timeline: Timeline, state: dict[str, Any], options: RenderOptions,
+    *, quality: str | None = None, upload_preset: str | None = None,
+) -> str:
+    """The render key the next render of ``timeline`` would get (for the "out of date" state;
+    the depth token is left out, as a render without the parallax add-on has it empty)."""
+    media = files_fingerprint(folder, timeline_media(folder, timeline))
+    return render_key_for(
+        timeline, popups_enabled=bool(state.get("popups_enabled", True)),
+        x264_preset=options.x264, media=media, depth="",
+        quality=quality or options.quality.id,
+        upload_preset=upload_preset or (options.upload.id if options.upload else "none"),
+    )
+
+
 def _render_rows(
     project_id: str, timeline: Timeline, state: dict[str, Any], config: RenderConfig,
-    enable_4k: bool,
+    enable_4k: bool, *, folder: Path | None = None, options: RenderOptions | None = None,
 ) -> list[RenderOutput]:
     renders = state.get("renders") if isinstance(state.get("renders"), dict) else {}
     rows: list[RenderOutput] = []
+    keys: dict[tuple[str, str], str] = {}
+
+    def key_for(raw: dict[str, Any]) -> str | None:
+        if folder is None or options is None:
+            return None
+        quality = str(raw.get("quality") or options.quality.id)
+        upload = str(raw.get("upload_preset") or "none")
+        found = keys.get((quality, upload))
+        if found is None:
+            try:
+                found = current_render_key(
+                    folder, timeline, state, options, quality=quality, upload_preset=upload
+                )
+            except (OSError, ValueError):
+                return None
+            keys[(quality, upload)] = found
+        return found
+
     for preset_id in [PROXY_ID, *config.available_presets(enable_4k=True)]:
         raw = renders.get(preset_id) if isinstance(renders.get(preset_id), dict) else {}
         path = raw.get("path") if isinstance(raw.get("path"), str) else None
@@ -478,6 +511,14 @@ def _render_rows(
         total = raw.get("scene_clips_total")
         reused = raw.get("scene_clips_reused")
         counted = isinstance(total, int) and isinstance(reused, int) and total > 0
+        stale = False
+        changes: int | None = None
+        if status == "done" and isinstance(raw.get("render_key"), str):
+            now_key = key_for(raw)
+            stale = now_key is not None and now_key != raw["render_key"]
+            rendered_at = raw.get("revision")
+            if stale and isinstance(rendered_at, int):
+                changes = max(1, timeline.revision - rendered_at)
         rows.append(
             RenderOutput(
                 preset=preset_id,
@@ -494,6 +535,8 @@ def _render_rows(
                 scene_clips_total=total if counted else None,
                 scene_clips_reused=reused if counted else None,
                 reuse_note=reuse_note(reused, total) if counted else None,
+                stale=stale,
+                changes=changes,
             )
         )
     return rows
@@ -564,7 +607,9 @@ def build_payload(
     folder = Path(project.folder)
     options = options_from(settings)
     enable_4k = options.enable_4k
-    renders = _render_rows(project.id, timeline, state, config, enable_4k)
+    renders = _render_rows(
+        project.id, timeline, state, config, enable_4k, folder=folder, options=options
+    )
     proxy = next((r for r in renders if r.preset == PROXY_ID and r.status == "done"), None)
     popup_by_scene: dict[int, str] = {}
     for popup in timeline.popups:
@@ -1003,6 +1048,7 @@ def render_edit(
                 "seconds_taken": result.seconds_taken,
                 "popups_enabled": popups_enabled,
                 "render_key": render_key,
+                "revision": timeline.revision,
                 "rendered_at": utc_stamp(),
                 "quality": options.quality.id if preset.id != PROXY_ID else None,
                 "upload_preset": state["upload_preset"] if preset.id != PROXY_ID else None,

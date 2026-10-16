@@ -2,12 +2,12 @@ import { createBrowserRouter, isRouteErrorResponse, Link, RouterProvider, useRou
 
 import { AppShell } from "./layout/AppShell";
 import type { RouteHandle } from "./layout/nav";
-import { EditorPage } from "./pages/EditorPage";
 import { EditsPage } from "./pages/EditsPage";
 import { LoginPage } from "./pages/LoginPage";
 import { NotFoundPage } from "./pages/NotFoundPage";
 import { RendersPage } from "./pages/RendersPage";
 import { SettingsPage } from "./pages/SettingsPage";
+import { EditorWorkspace } from "./workspace/editor/EditorWorkspace";
 
 /** Shown when a page throws while rendering, so the app never goes blank. */
 function RouteError() {
@@ -32,7 +32,6 @@ function handle(title: string): RouteHandle {
 
 const pages: RouteObject[] = [
   { index: true, element: <EditsPage />, handle: handle("My edits") },
-  { path: "edit/:id", element: <EditorPage />, handle: handle("Editor") },
   { path: "renders", element: <RendersPage />, handle: handle("Renders") },
   { path: "settings", element: <SettingsPage />, handle: handle("Settings") },
   { path: "*", element: <NotFoundPage />, handle: handle("Page not found") },
@@ -40,6 +39,8 @@ const pages: RouteObject[] = [
 
 const router = createBrowserRouter([
   { path: "/login", element: <LoginPage />, errorElement: <RouteError /> },
+  // The Edit room is a full-window workspace with its own rail and top bar.
+  { path: "/edit/:id", element: <EditorWorkspace />, errorElement: <RouteError /> },
   // Everything else needs a session; AppShell is the guard.
   { path: "/", element: <AppShell />, errorElement: <RouteError />, children: pages },
 ]);

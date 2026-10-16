@@ -310,6 +310,10 @@ export interface RenderOutput {
   scene_clips_reused: number | null;
   /** plain English, e.g. "Reused 2 of 3 scene clips." */
   reuse_note: string | null;
+  /** the timeline changed since this render (the Render menu says "Out of date") */
+  stale: boolean;
+  /** how many saves happened since this render, when known */
+  changes: number | null;
 }
 
 /** A track from the channel's music folder. */
@@ -737,6 +741,8 @@ function parseRender(preset: string, raw: unknown): RenderOutput {
     scene_clips_total: null,
     scene_clips_reused: null,
     reuse_note: null,
+    stale: false,
+    changes: null,
   };
   if (typeof raw === "string") {
     // either a status word or a file path
@@ -766,6 +772,8 @@ function parseRender(preset: string, raw: unknown): RenderOutput {
     scene_clips_total: counted ? clipsTotal : null,
     scene_clips_reused: counted ? clipsReused : null,
     reuse_note: nullableStr(raw.reuse_note) ?? (counted ? reuseNote(clipsReused, clipsTotal) : null),
+    stale: bool(raw.stale),
+    changes: nullableNum(raw.changes),
   };
 }
 

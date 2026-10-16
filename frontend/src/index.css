@@ -196,7 +196,14 @@ body.workspace-open {
   --color-ed-focus: var(--ed-focus);
   --color-ed-hover-border: var(--ed-hover-border);
   --color-ed-connector: var(--ed-connector);
+  --color-lane-scene: var(--lane-scene);
   --color-lane-popup: var(--lane-popup);
+  --color-lane-caption: var(--lane-caption);
+  --color-lane-voice: var(--lane-voice);
+  --color-lane-voice-wave: var(--lane-voice-wave);
+  --color-lane-music: var(--lane-music);
+  --color-lane-music-wave: var(--lane-music-wave);
+  --color-lane-marker: var(--lane-marker);
   --font-timecode: "IBM Plex Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
 }
 
