@@ -95,7 +95,37 @@ encoder speed, captions burned in, caption style), Allow 4K, health checks, Abou
 and "Check for updates". The installer and runtime are the copied tools with the new names; the
 update check reads `RizwanAbbassamtia/9Sigma-Editor` releases. `docs/INSTALL.md` for the team.
 
-## 7. Tests and proof
+## 7. Decisions recorded during the build (2026-10-16)
+
+1. **Source commit.** The CashCow session named no commit, so the copy comes from the latest
+   commit on CashCow main whose message mentions the preview engine: `2a10946` (Storyboard v2).
+   Between the M5.1 commit (`9f41fb5`) and `2a10946` the kept areas only gained fixes (the live
+   preview, the dialog, the health checks); the tip of main differs only in CashCow's installer.
+   The copy is made by `tools/copy_from_cashcow.py` (read-only on CashCow Studio; never
+   overwrites a file already written here) and is run by the owner.
+2. **The edit's folder** holds `project.json` (not `job.json`) with `kind: "edit"`, `name`,
+   `format`, `language`, `status` (new, ready, rendering, rendered, exported, failed),
+   `status_note` and `duration_s`; the subfolders `01_media/`, `05_voice/`, `06_images/`,
+   `07_edit/`, `08_export/` keep the engine's own paths. No SQLite index: the list reads the
+   folders. Delete moves the folder to the Recycle Bin (or `_deleted/` when the bin refuses).
+3. **Timing.** `05_voice/timing.json` keeps the engine's shape (`models/timing.py`, trimmed),
+   with two additions: `source: "captions"` for times taken from an SRT/VTT file, and
+   `nudged: true` once a person moved a sentence start in the timing tool; each sentence also
+   records its `paragraph`. Without a speech-to-text tool the words inside a sentence are spread
+   by length (`words_source: "estimated"`).
+4. **Scene plan.** The timeline builder copied from CashCow takes its scene list as a
+   `StoryboardDoc` (`models/storyboard.py`); that model is kept, trimmed to the scene fields, as
+   the app's internal scene plan. It is never shown as a storyboard (the Storyboard tab stays
+   v0.3). `models/edit_input.py` is the form of "New edit from files".
+5. **Export** writes `export.txt` (name, length, sizes, quality, a line per file with its
+   SHA-256), `checksums.sha256` (the usual `<hash>  <file>` list) and `export.json` into
+   `<exports_dir>/<YYYY-MM-DD>_<name-slug>/`.
+6. **Clips.** The copied engine draws scenes from pictures only. v0.1 renders a clip as a scene
+   through a new clip branch in the scene-clip renderer (muted unless "keep the clip's sound");
+   the live preview shows the clip's poster frame with a note until the preview engine learns
+   to play video.
+
+## 8. Tests and proof
 
 All kept tests pass under the new names. New tests: project creation from files in each
 combination (pictures only; with narration; with SRT; with clips; Short), timing nudge, caption
