@@ -29,7 +29,7 @@ from ..storage.project_store import (
     ProjectNotFound,
     ProjectStoreError,
 )
-from .deps import StoreDep
+from .deps import SettingsDep, StoreDep
 
 router = APIRouter(prefix="/api/edits", tags=["edits"])
 
@@ -194,9 +194,11 @@ async def get_timing(project_id: str, store: StoreDep) -> TimingDoc:
 
 
 @router.post("/{project_id}/timing", response_model=TimingDoc)
-async def nudge_timing(project_id: str, body: TimingNudge, store: StoreDep) -> TimingDoc:
+async def nudge_timing(
+    project_id: str, body: TimingNudge, store: StoreDep, settings: SettingsDep
+) -> TimingDoc:
     """One move of the timing tool. The scene times and the caption cues follow the new
-    sentence times (``api/editing.py`` re-times the timeline after this, when present)."""
+    sentence times: the timeline is built again from the scene plan."""
     project = await load_project(store, project_id)
     path = timing_path(project)
     doc = await asyncio.to_thread(read_timing, path)
@@ -206,11 +208,20 @@ async def nudge_timing(project_id: str, body: TimingNudge, store: StoreDep) -> T
         updated = nudged(doc, index=body.index, start_s=body.start_s, shift_s=body.shift_s)
     except TimingError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    def work() -> None:
+        write_timing(path, updated)
+        from ..edit.builder import BuildError, rebuild_timeline
+
+        try:
+            timeline, _warnings = rebuild_timeline(project, settings)
+        except BuildError:
+            return  # no scene plan yet: the timing alone changed
+        project.duration_s = round(timeline.duration_s, 3)
+        store.save(project)
+
     try:
-        await asyncio.to_thread(write_timing, path, updated)
-        after = getattr(router, "after_timing_change", None)
-        if callable(after):
-            await after(project, updated)
-    except OSError as exc:
+        await asyncio.to_thread(work)
+    except (ProjectStoreError, OSError) as exc:
         raise translate(exc) from exc
     return updated

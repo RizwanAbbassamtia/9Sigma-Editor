@@ -1,0 +1,1280 @@
+{
+  "generator": "tools/make_preview_fixtures.py",
+  "version": 1,
+  "fixture": "captions",
+  "presets": [
+    {
+      "id": "bold-outline",
+      "label": "Bold outline",
+      "layout": "phrase",
+      "active_colour": "#FFE34D",
+      "pop_scale": 1.0,
+      "pop_s": 0.0,
+      "box": false,
+      "box_colour": "#000000",
+      "box_opacity": 0.55,
+      "box_padding_px": 12
+    },
+    {
+      "id": "active-word",
+      "label": "Active word",
+      "layout": "phrase",
+      "active_colour": "#FFE34D",
+      "pop_scale": 1.0,
+      "pop_s": 0.0,
+      "box": false,
+      "box_colour": "#000000",
+      "box_opacity": 0.55,
+      "box_padding_px": 12
+    },
+    {
+      "id": "single-word-pop",
+      "label": "Single word pop",
+      "layout": "single_word",
+      "active_colour": "#FFE34D",
+      "pop_scale": 1.12,
+      "pop_s": 0.12,
+      "box": false,
+      "box_colour": "#000000",
+      "box_opacity": 0.55,
+      "box_padding_px": 12
+    },
+    {
+      "id": "boxed",
+      "label": "Boxed",
+      "layout": "phrase",
+      "active_colour": "#FFE34D",
+      "pop_scale": 1.0,
+      "pop_s": 0.0,
+      "box": true,
+      "box_colour": "#000000",
+      "box_opacity": 0.55,
+      "box_padding_px": 12
+    }
+  ],
+  "cases": [
+    {
+      "name": "english_phrases",
+      "language": "English",
+      "space_dependent": true,
+      "sentences": [
+        {
+          "id": "e1",
+          "text": "The diner opened at five every morning without fail.",
+          "start_s": 0.0,
+          "end_s": 3.1,
+          "words": [
+            {
+              "text": "The",
+              "start_s": 0.0,
+              "end_s": 0.3
+            },
+            {
+              "text": "diner",
+              "start_s": 0.34,
+              "end_s": 0.64
+            },
+            {
+              "text": "opened",
+              "start_s": 0.68,
+              "end_s": 0.98
+            },
+            {
+              "text": "at",
+              "start_s": 1.02,
+              "end_s": 1.32
+            },
+            {
+              "text": "five",
+              "start_s": 1.36,
+              "end_s": 1.66
+            },
+            {
+              "text": "every",
+              "start_s": 1.7,
+              "end_s": 2.0
+            },
+            {
+              "text": "morning",
+              "start_s": 2.04,
+              "end_s": 2.34
+            },
+            {
+              "text": "without",
+              "start_s": 2.38,
+              "end_s": 2.68
+            },
+            {
+              "text": "fail.",
+              "start_s": 2.72,
+              "end_s": 3.02
+            }
+          ]
+        },
+        {
+          "id": "e2",
+          "text": "Nobody noticed him.",
+          "start_s": 3.6,
+          "end_s": 4.7,
+          "words": []
+        }
+      ],
+      "cues": [
+        {
+          "start_s": 0.0,
+          "end_s": 3.02,
+          "text": "The diner opened at five\\Nevery morning without fail."
+        },
+        {
+          "start_s": 3.6,
+          "end_s": 4.7,
+          "text": "Nobody noticed him."
+        },
+        {
+          "start_s": 5.0,
+          "end_s": 6.0,
+          "text": "An edited\\Nline"
+        }
+      ],
+      "tokens": [
+        [
+          ["The", true],
+          [" ", false],
+          ["diner", true],
+          [" ", false],
+          ["opened", true],
+          [" ", false],
+          ["at", true],
+          [" ", false],
+          ["five", true],
+          ["\\N", false],
+          ["every", true],
+          [" ", false],
+          ["morning", true],
+          [" ", false],
+          ["without", true],
+          [" ", false],
+          ["fail.", true]
+        ],
+        [
+          ["Nobody", true],
+          [" ", false],
+          ["noticed", true],
+          [" ", false],
+          ["him.", true]
+        ],
+        [
+          ["An", true],
+          [" ", false],
+          ["edited", true],
+          ["\\N", false],
+          ["line", true]
+        ]
+      ],
+      "words": [
+        [
+          {
+            "text": "The",
+            "start_s": 0.0,
+            "end_s": 0.3
+          },
+          {
+            "text": "diner",
+            "start_s": 0.34,
+            "end_s": 0.64
+          },
+          {
+            "text": "opened",
+            "start_s": 0.68,
+            "end_s": 0.98
+          },
+          {
+            "text": "at",
+            "start_s": 1.02,
+            "end_s": 1.32
+          },
+          {
+            "text": "five",
+            "start_s": 1.36,
+            "end_s": 1.66
+          },
+          {
+            "text": "every",
+            "start_s": 1.7,
+            "end_s": 2.0
+          },
+          {
+            "text": "morning",
+            "start_s": 2.04,
+            "end_s": 2.34
+          },
+          {
+            "text": "without",
+            "start_s": 2.38,
+            "end_s": 2.68
+          },
+          {
+            "text": "fail.",
+            "start_s": 2.72,
+            "end_s": 3.02
+          }
+        ],
+        [
+          {
+            "text": "Nobody",
+            "start_s": 3.6,
+            "end_s": 3.988
+          },
+          {
+            "text": "noticed",
+            "start_s": 3.988,
+            "end_s": 4.441
+          },
+          {
+            "text": "him.",
+            "start_s": 4.441,
+            "end_s": 4.7
+          }
+        ],
+        [
+          {
+            "text": "An",
+            "start_s": 5.0,
+            "end_s": 5.167
+          },
+          {
+            "text": "edited",
+            "start_s": 5.167,
+            "end_s": 5.667
+          },
+          {
+            "text": "line",
+            "start_s": 5.667,
+            "end_s": 6.0
+          }
+        ]
+      ],
+      "events": {
+        "bold-outline": [
+          {
+            "cue": 0,
+            "start_s": 0.0,
+            "end_s": 3.02,
+            "active": null,
+            "text": "{\\an2}The diner opened at five\\Nevery morning without fail."
+          },
+          {
+            "cue": 1,
+            "start_s": 3.6,
+            "end_s": 4.7,
+            "active": null,
+            "text": "{\\an2}Nobody noticed him."
+          },
+          {
+            "cue": 2,
+            "start_s": 5.0,
+            "end_s": 6.0,
+            "active": null,
+            "text": "{\\an2}An edited\\Nline"
+          }
+        ],
+        "active-word": [
+          {
+            "cue": 0,
+            "start_s": 0.0,
+            "end_s": 0.34,
+            "active": 0,
+            "text": "{\\an2}{\\1c&H4DE3FF&}The{\\1c&HFFFFFF&} diner opened at five\\Nevery morning without fail."
+          },
+          {
+            "cue": 0,
+            "start_s": 0.34,
+            "end_s": 0.68,
+            "active": 1,
+            "text": "{\\an2}The {\\1c&H4DE3FF&}diner{\\1c&HFFFFFF&} opened at five\\Nevery morning without fail."
+          },
+          {
+            "cue": 0,
+            "start_s": 0.68,
+            "end_s": 1.02,
+            "active": 2,
+            "text": "{\\an2}The diner {\\1c&H4DE3FF&}opened{\\1c&HFFFFFF&} at five\\Nevery morning without fail."
+          },
+          {
+            "cue": 0,
+            "start_s": 1.02,
+            "end_s": 1.36,
+            "active": 3,
+            "text": "{\\an2}The diner opened {\\1c&H4DE3FF&}at{\\1c&HFFFFFF&} five\\Nevery morning without fail."
+          },
+          {
+            "cue": 0,
+            "start_s": 1.36,
+            "end_s": 1.7,
+            "active": 4,
+            "text": "{\\an2}The diner opened at {\\1c&H4DE3FF&}five{\\1c&HFFFFFF&}\\Nevery morning without fail."
+          },
+          {
+            "cue": 0,
+            "start_s": 1.7,
+            "end_s": 2.04,
+            "active": 5,
+            "text": "{\\an2}The diner opened at five\\N{\\1c&H4DE3FF&}every{\\1c&HFFFFFF&} morning without fail."
+          },
+          {
+            "cue": 0,
+            "start_s": 2.04,
+            "end_s": 2.38,
+            "active": 6,
+            "text": "{\\an2}The diner opened at five\\Nevery {\\1c&H4DE3FF&}morning{\\1c&HFFFFFF&} without fail."
+          },
+          {
+            "cue": 0,
+            "start_s": 2.38,
+            "end_s": 2.72,
+            "active": 7,
+            "text": "{\\an2}The diner opened at five\\Nevery morning {\\1c&H4DE3FF&}without{\\1c&HFFFFFF&} fail."
+          },
+          {
+            "cue": 0,
+            "start_s": 2.72,
+            "end_s": 3.02,
+            "active": 8,
+            "text": "{\\an2}The diner opened at five\\Nevery morning without {\\1c&H4DE3FF&}fail.{\\1c&HFFFFFF&}"
+          },
+          {
+            "cue": 1,
+            "start_s": 3.6,
+            "end_s": 3.988,
+            "active": 0,
+            "text": "{\\an2}{\\1c&H4DE3FF&}Nobody{\\1c&HFFFFFF&} noticed him."
+          },
+          {
+            "cue": 1,
+            "start_s": 3.988,
+            "end_s": 4.441,
+            "active": 1,
+            "text": "{\\an2}Nobody {\\1c&H4DE3FF&}noticed{\\1c&HFFFFFF&} him."
+          },
+          {
+            "cue": 1,
+            "start_s": 4.441,
+            "end_s": 4.7,
+            "active": 2,
+            "text": "{\\an2}Nobody noticed {\\1c&H4DE3FF&}him.{\\1c&HFFFFFF&}"
+          },
+          {
+            "cue": 2,
+            "start_s": 5.0,
+            "end_s": 5.167,
+            "active": 0,
+            "text": "{\\an2}{\\1c&H4DE3FF&}An{\\1c&HFFFFFF&} edited\\Nline"
+          },
+          {
+            "cue": 2,
+            "start_s": 5.167,
+            "end_s": 5.667,
+            "active": 1,
+            "text": "{\\an2}An {\\1c&H4DE3FF&}edited{\\1c&HFFFFFF&}\\Nline"
+          },
+          {
+            "cue": 2,
+            "start_s": 5.667,
+            "end_s": 6.0,
+            "active": 2,
+            "text": "{\\an2}An edited\\N{\\1c&H4DE3FF&}line{\\1c&HFFFFFF&}"
+          }
+        ],
+        "single-word-pop": [
+          {
+            "cue": 0,
+            "start_s": 0.0,
+            "end_s": 0.34,
+            "active": 0,
+            "text": "{\\an2\\fscx100\\fscy100\\t(0,120,\\fscx112\\fscy112)}The"
+          },
+          {
+            "cue": 0,
+            "start_s": 0.34,
+            "end_s": 0.68,
+            "active": 1,
+            "text": "{\\an2\\fscx100\\fscy100\\t(0,120,\\fscx112\\fscy112)}diner"
+          },
+          {
+            "cue": 0,
+            "start_s": 0.68,
+            "end_s": 1.02,
+            "active": 2,
+            "text": "{\\an2\\fscx100\\fscy100\\t(0,120,\\fscx112\\fscy112)}opened"
+          },
+          {
+            "cue": 0,
+            "start_s": 1.02,
+            "end_s": 1.36,
+            "active": 3,
+            "text": "{\\an2\\fscx100\\fscy100\\t(0,120,\\fscx112\\fscy112)}at"
+          },
+          {
+            "cue": 0,
+            "start_s": 1.36,
+            "end_s": 1.7,
+            "active": 4,
+            "text": "{\\an2\\fscx100\\fscy100\\t(0,120,\\fscx112\\fscy112)}five"
+          },
+          {
+            "cue": 0,
+            "start_s": 1.7,
+            "end_s": 2.04,
+            "active": 5,
+            "text": "{\\an2\\fscx100\\fscy100\\t(0,120,\\fscx112\\fscy112)}every"
+          },
+          {
+            "cue": 0,
+            "start_s": 2.04,
+            "end_s": 2.38,
+            "active": 6,
+            "text": "{\\an2\\fscx100\\fscy100\\t(0,120,\\fscx112\\fscy112)}morning"
+          },
+          {
+            "cue": 0,
+            "start_s": 2.38,
+            "end_s": 2.72,
+            "active": 7,
+            "text": "{\\an2\\fscx100\\fscy100\\t(0,120,\\fscx112\\fscy112)}without"
+          },
+          {
+            "cue": 0,
+            "start_s": 2.72,
+            "end_s": 3.02,
+            "active": 8,
+            "text": "{\\an2\\fscx100\\fscy100\\t(0,120,\\fscx112\\fscy112)}fail."
+          },
+          {
+            "cue": 1,
+            "start_s": 3.6,
+            "end_s": 3.988,
+            "active": 0,
+            "text": "{\\an2\\fscx100\\fscy100\\t(0,120,\\fscx112\\fscy112)}Nobody"
+          },
+          {
+            "cue": 1,
+            "start_s": 3.988,
+            "end_s": 4.441,
+            "active": 1,
+            "text": "{\\an2\\fscx100\\fscy100\\t(0,120,\\fscx112\\fscy112)}noticed"
+          },
+          {
+            "cue": 1,
+            "start_s": 4.441,
+            "end_s": 4.7,
+            "active": 2,
+            "text": "{\\an2\\fscx100\\fscy100\\t(0,120,\\fscx112\\fscy112)}him."
+          },
+          {
+            "cue": 2,
+            "start_s": 5.0,
+            "end_s": 5.167,
+            "active": 0,
+            "text": "{\\an2\\fscx100\\fscy100\\t(0,120,\\fscx112\\fscy112)}An"
+          },
+          {
+            "cue": 2,
+            "start_s": 5.167,
+            "end_s": 5.667,
+            "active": 1,
+            "text": "{\\an2\\fscx100\\fscy100\\t(0,120,\\fscx112\\fscy112)}edited"
+          },
+          {
+            "cue": 2,
+            "start_s": 5.667,
+            "end_s": 6.0,
+            "active": 2,
+            "text": "{\\an2\\fscx100\\fscy100\\t(0,120,\\fscx112\\fscy112)}line"
+          }
+        ],
+        "boxed": [
+          {
+            "cue": 0,
+            "start_s": 0.0,
+            "end_s": 3.02,
+            "active": null,
+            "text": "{\\an2}The diner opened at five\\Nevery morning without fail."
+          },
+          {
+            "cue": 1,
+            "start_s": 3.6,
+            "end_s": 4.7,
+            "active": null,
+            "text": "{\\an2}Nobody noticed him."
+          },
+          {
+            "cue": 2,
+            "start_s": 5.0,
+            "end_s": 6.0,
+            "active": null,
+            "text": "{\\an2}An edited\\Nline"
+          }
+        ]
+      }
+    },
+    {
+      "name": "english_single_words",
+      "language": "English",
+      "space_dependent": true,
+      "sentences": [
+        {
+          "id": "e1",
+          "text": "The diner opened at five every morning without fail.",
+          "start_s": 0.0,
+          "end_s": 3.1,
+          "words": [
+            {
+              "text": "The",
+              "start_s": 0.0,
+              "end_s": 0.3
+            },
+            {
+              "text": "diner",
+              "start_s": 0.34,
+              "end_s": 0.64
+            },
+            {
+              "text": "opened",
+              "start_s": 0.68,
+              "end_s": 0.98
+            },
+            {
+              "text": "at",
+              "start_s": 1.02,
+              "end_s": 1.32
+            },
+            {
+              "text": "five",
+              "start_s": 1.36,
+              "end_s": 1.66
+            },
+            {
+              "text": "every",
+              "start_s": 1.7,
+              "end_s": 2.0
+            },
+            {
+              "text": "morning",
+              "start_s": 2.04,
+              "end_s": 2.34
+            },
+            {
+              "text": "without",
+              "start_s": 2.38,
+              "end_s": 2.68
+            },
+            {
+              "text": "fail.",
+              "start_s": 2.72,
+              "end_s": 3.02
+            }
+          ]
+        },
+        {
+          "id": "e2",
+          "text": "Nobody noticed him.",
+          "start_s": 3.6,
+          "end_s": 4.7,
+          "words": []
+        }
+      ],
+      "cues": [
+        {
+          "start_s": 0.0,
+          "end_s": 0.34,
+          "text": "The"
+        },
+        {
+          "start_s": 0.34,
+          "end_s": 0.68,
+          "text": "diner"
+        },
+        {
+          "start_s": 0.68,
+          "end_s": 1.02,
+          "text": "opened"
+        },
+        {
+          "start_s": 1.02,
+          "end_s": 1.36,
+          "text": "at"
+        },
+        {
+          "start_s": 1.36,
+          "end_s": 1.7,
+          "text": "five"
+        },
+        {
+          "start_s": 1.7,
+          "end_s": 2.04,
+          "text": "every"
+        },
+        {
+          "start_s": 2.04,
+          "end_s": 2.38,
+          "text": "morning"
+        },
+        {
+          "start_s": 2.38,
+          "end_s": 2.72,
+          "text": "without"
+        },
+        {
+          "start_s": 2.72,
+          "end_s": 3.12,
+          "text": "fail."
+        },
+        {
+          "start_s": 3.6,
+          "end_s": 3.988,
+          "text": "Nobody"
+        },
+        {
+          "start_s": 3.988,
+          "end_s": 4.441,
+          "text": "noticed"
+        },
+        {
+          "start_s": 4.441,
+          "end_s": 4.841,
+          "text": "him."
+        }
+      ],
+      "tokens": [
+        [
+          ["The", true]
+        ],
+        [
+          ["diner", true]
+        ],
+        [
+          ["opened", true]
+        ],
+        [
+          ["at", true]
+        ],
+        [
+          ["five", true]
+        ],
+        [
+          ["every", true]
+        ],
+        [
+          ["morning", true]
+        ],
+        [
+          ["without", true]
+        ],
+        [
+          ["fail.", true]
+        ],
+        [
+          ["Nobody", true]
+        ],
+        [
+          ["noticed", true]
+        ],
+        [
+          ["him.", true]
+        ]
+      ],
+      "words": [
+        [
+          {
+            "text": "The",
+            "start_s": 0.0,
+            "end_s": 0.3
+          }
+        ],
+        [
+          {
+            "text": "diner",
+            "start_s": 0.34,
+            "end_s": 0.64
+          }
+        ],
+        [
+          {
+            "text": "opened",
+            "start_s": 0.68,
+            "end_s": 0.98
+          }
+        ],
+        [
+          {
+            "text": "at",
+            "start_s": 1.02,
+            "end_s": 1.32
+          }
+        ],
+        [
+          {
+            "text": "five",
+            "start_s": 1.36,
+            "end_s": 1.66
+          }
+        ],
+        [
+          {
+            "text": "every",
+            "start_s": 1.7,
+            "end_s": 2.0
+          }
+        ],
+        [
+          {
+            "text": "morning",
+            "start_s": 2.04,
+            "end_s": 2.34
+          }
+        ],
+        [
+          {
+            "text": "without",
+            "start_s": 2.38,
+            "end_s": 2.68
+          }
+        ],
+        [
+          {
+            "text": "fail.",
+            "start_s": 2.72,
+            "end_s": 3.02
+          }
+        ],
+        [
+          {
+            "text": "Nobody",
+            "start_s": 3.6,
+            "end_s": 3.988
+          }
+        ],
+        [
+          {
+            "text": "noticed",
+            "start_s": 3.988,
+            "end_s": 4.441
+          }
+        ],
+        [
+          {
+            "text": "him.",
+            "start_s": 4.441,
+            "end_s": 4.7
+          }
+        ]
+      ],
+      "events": {
+        "bold-outline": [
+          {
+            "cue": 0,
+            "start_s": 0.0,
+            "end_s": 0.34,
+            "active": null,
+            "text": "{\\an2}The"
+          },
+          {
+            "cue": 1,
+            "start_s": 0.34,
+            "end_s": 0.68,
+            "active": null,
+            "text": "{\\an2}diner"
+          },
+          {
+            "cue": 2,
+            "start_s": 0.68,
+            "end_s": 1.02,
+            "active": null,
+            "text": "{\\an2}opened"
+          },
+          {
+            "cue": 3,
+            "start_s": 1.02,
+            "end_s": 1.36,
+            "active": null,
+            "text": "{\\an2}at"
+          },
+          {
+            "cue": 4,
+            "start_s": 1.36,
+            "end_s": 1.7,
+            "active": null,
+            "text": "{\\an2}five"
+          },
+          {
+            "cue": 5,
+            "start_s": 1.7,
+            "end_s": 2.04,
+            "active": null,
+            "text": "{\\an2}every"
+          },
+          {
+            "cue": 6,
+            "start_s": 2.04,
+            "end_s": 2.38,
+            "active": null,
+            "text": "{\\an2}morning"
+          },
+          {
+            "cue": 7,
+            "start_s": 2.38,
+            "end_s": 2.72,
+            "active": null,
+            "text": "{\\an2}without"
+          },
+          {
+            "cue": 8,
+            "start_s": 2.72,
+            "end_s": 3.12,
+            "active": null,
+            "text": "{\\an2}fail."
+          },
+          {
+            "cue": 9,
+            "start_s": 3.6,
+            "end_s": 3.988,
+            "active": null,
+            "text": "{\\an2}Nobody"
+          },
+          {
+            "cue": 10,
+            "start_s": 3.988,
+            "end_s": 4.441,
+            "active": null,
+            "text": "{\\an2}noticed"
+          },
+          {
+            "cue": 11,
+            "start_s": 4.441,
+            "end_s": 4.841,
+            "active": null,
+            "text": "{\\an2}him."
+          }
+        ],
+        "active-word": [
+          {
+            "cue": 0,
+            "start_s": 0.0,
+            "end_s": 0.34,
+            "active": 0,
+            "text": "{\\an2}{\\1c&H4DE3FF&}The{\\1c&HFFFFFF&}"
+          },
+          {
+            "cue": 1,
+            "start_s": 0.34,
+            "end_s": 0.68,
+            "active": 0,
+            "text": "{\\an2}{\\1c&H4DE3FF&}diner{\\1c&HFFFFFF&}"
+          },
+          {
+            "cue": 2,
+            "start_s": 0.68,
+            "end_s": 1.02,
+            "active": 0,
+            "text": "{\\an2}{\\1c&H4DE3FF&}opened{\\1c&HFFFFFF&}"
+          },
+          {
+            "cue": 3,
+            "start_s": 1.02,
+            "end_s": 1.36,
+            "active": 0,
+            "text": "{\\an2}{\\1c&H4DE3FF&}at{\\1c&HFFFFFF&}"
+          },
+          {
+            "cue": 4,
+            "start_s": 1.36,
+            "end_s": 1.7,
+            "active": 0,
+            "text": "{\\an2}{\\1c&H4DE3FF&}five{\\1c&HFFFFFF&}"
+          },
+          {
+            "cue": 5,
+            "start_s": 1.7,
+            "end_s": 2.04,
+            "active": 0,
+            "text": "{\\an2}{\\1c&H4DE3FF&}every{\\1c&HFFFFFF&}"
+          },
+          {
+            "cue": 6,
+            "start_s": 2.04,
+            "end_s": 2.38,
+            "active": 0,
+            "text": "{\\an2}{\\1c&H4DE3FF&}morning{\\1c&HFFFFFF&}"
+          },
+          {
+            "cue": 7,
+            "start_s": 2.38,
+            "end_s": 2.72,
+            "active": 0,
+            "text": "{\\an2}{\\1c&H4DE3FF&}without{\\1c&HFFFFFF&}"
+          },
+          {
+            "cue": 8,
+            "start_s": 2.72,
+            "end_s": 3.12,
+            "active": 0,
+            "text": "{\\an2}{\\1c&H4DE3FF&}fail.{\\1c&HFFFFFF&}"
+          },
+          {
+            "cue": 9,
+            "start_s": 3.6,
+            "end_s": 3.988,
+            "active": 0,
+            "text": "{\\an2}{\\1c&H4DE3FF&}Nobody{\\1c&HFFFFFF&}"
+          },
+          {
+            "cue": 10,
+            "start_s": 3.988,
+            "end_s": 4.441,
+            "active": 0,
+            "text": "{\\an2}{\\1c&H4DE3FF&}noticed{\\1c&HFFFFFF&}"
+          },
+          {
+            "cue": 11,
+            "start_s": 4.441,
+            "end_s": 4.841,
+            "active": 0,
+            "text": "{\\an2}{\\1c&H4DE3FF&}him.{\\1c&HFFFFFF&}"
+          }
+        ],
+        "single-word-pop": [
+          {
+            "cue": 0,
+            "start_s": 0.0,
+            "end_s": 0.34,
+            "active": 0,
+            "text": "{\\an2\\fscx100\\fscy100\\t(0,120,\\fscx112\\fscy112)}The"
+          },
+          {
+            "cue": 1,
+            "start_s": 0.34,
+            "end_s": 0.68,
+            "active": 0,
+            "text": "{\\an2\\fscx100\\fscy100\\t(0,120,\\fscx112\\fscy112)}diner"
+          },
+          {
+            "cue": 2,
+            "start_s": 0.68,
+            "end_s": 1.02,
+            "active": 0,
+            "text": "{\\an2\\fscx100\\fscy100\\t(0,120,\\fscx112\\fscy112)}opened"
+          },
+          {
+            "cue": 3,
+            "start_s": 1.02,
+            "end_s": 1.36,
+            "active": 0,
+            "text": "{\\an2\\fscx100\\fscy100\\t(0,120,\\fscx112\\fscy112)}at"
+          },
+          {
+            "cue": 4,
+            "start_s": 1.36,
+            "end_s": 1.7,
+            "active": 0,
+            "text": "{\\an2\\fscx100\\fscy100\\t(0,120,\\fscx112\\fscy112)}five"
+          },
+          {
+            "cue": 5,
+            "start_s": 1.7,
+            "end_s": 2.04,
+            "active": 0,
+            "text": "{\\an2\\fscx100\\fscy100\\t(0,120,\\fscx112\\fscy112)}every"
+          },
+          {
+            "cue": 6,
+            "start_s": 2.04,
+            "end_s": 2.38,
+            "active": 0,
+            "text": "{\\an2\\fscx100\\fscy100\\t(0,120,\\fscx112\\fscy112)}morning"
+          },
+          {
+            "cue": 7,
+            "start_s": 2.38,
+            "end_s": 2.72,
+            "active": 0,
+            "text": "{\\an2\\fscx100\\fscy100\\t(0,120,\\fscx112\\fscy112)}without"
+          },
+          {
+            "cue": 8,
+            "start_s": 2.72,
+            "end_s": 3.12,
+            "active": 0,
+            "text": "{\\an2\\fscx100\\fscy100\\t(0,120,\\fscx112\\fscy112)}fail."
+          },
+          {
+            "cue": 9,
+            "start_s": 3.6,
+            "end_s": 3.988,
+            "active": 0,
+            "text": "{\\an2\\fscx100\\fscy100\\t(0,120,\\fscx112\\fscy112)}Nobody"
+          },
+          {
+            "cue": 10,
+            "start_s": 3.988,
+            "end_s": 4.441,
+            "active": 0,
+            "text": "{\\an2\\fscx100\\fscy100\\t(0,120,\\fscx112\\fscy112)}noticed"
+          },
+          {
+            "cue": 11,
+            "start_s": 4.441,
+            "end_s": 4.841,
+            "active": 0,
+            "text": "{\\an2\\fscx100\\fscy100\\t(0,120,\\fscx112\\fscy112)}him."
+          }
+        ],
+        "boxed": [
+          {
+            "cue": 0,
+            "start_s": 0.0,
+            "end_s": 0.34,
+            "active": null,
+            "text": "{\\an2}The"
+          },
+          {
+            "cue": 1,
+            "start_s": 0.34,
+            "end_s": 0.68,
+            "active": null,
+            "text": "{\\an2}diner"
+          },
+          {
+            "cue": 2,
+            "start_s": 0.68,
+            "end_s": 1.02,
+            "active": null,
+            "text": "{\\an2}opened"
+          },
+          {
+            "cue": 3,
+            "start_s": 1.02,
+            "end_s": 1.36,
+            "active": null,
+            "text": "{\\an2}at"
+          },
+          {
+            "cue": 4,
+            "start_s": 1.36,
+            "end_s": 1.7,
+            "active": null,
+            "text": "{\\an2}five"
+          },
+          {
+            "cue": 5,
+            "start_s": 1.7,
+            "end_s": 2.04,
+            "active": null,
+            "text": "{\\an2}every"
+          },
+          {
+            "cue": 6,
+            "start_s": 2.04,
+            "end_s": 2.38,
+            "active": null,
+            "text": "{\\an2}morning"
+          },
+          {
+            "cue": 7,
+            "start_s": 2.38,
+            "end_s": 2.72,
+            "active": null,
+            "text": "{\\an2}without"
+          },
+          {
+            "cue": 8,
+            "start_s": 2.72,
+            "end_s": 3.12,
+            "active": null,
+            "text": "{\\an2}fail."
+          },
+          {
+            "cue": 9,
+            "start_s": 3.6,
+            "end_s": 3.988,
+            "active": null,
+            "text": "{\\an2}Nobody"
+          },
+          {
+            "cue": 10,
+            "start_s": 3.988,
+            "end_s": 4.441,
+            "active": null,
+            "text": "{\\an2}noticed"
+          },
+          {
+            "cue": 11,
+            "start_s": 4.441,
+            "end_s": 4.841,
+            "active": null,
+            "text": "{\\an2}him."
+          }
+        ]
+      }
+    },
+    {
+      "name": "japanese",
+      "language": "Japanese",
+      "space_dependent": false,
+      "sentences": [
+        {
+          "id": "j1",
+          "text": "\u6771\u4eac\u3078\u884c\u304f",
+          "start_s": 0.0,
+          "end_s": 1.5,
+          "words": [
+            {
+              "text": "\u6771\u4eac\u3078\u884c\u304f",
+              "start_s": 0.0,
+              "end_s": 1.5
+            }
+          ]
+        }
+      ],
+      "cues": [
+        {
+          "start_s": 0.0,
+          "end_s": 1.5,
+          "text": "\u6771\u4eac\u3078\u884c\u304f"
+        }
+      ],
+      "tokens": [
+        [
+          ["\u6771", true],
+          ["\u4eac", true],
+          ["\u3078", true],
+          ["\u884c", true],
+          ["\u304f", true]
+        ]
+      ],
+      "words": [
+        [
+          {
+            "text": "\u6771",
+            "start_s": 0.0,
+            "end_s": 0.3
+          },
+          {
+            "text": "\u4eac",
+            "start_s": 0.3,
+            "end_s": 0.6
+          },
+          {
+            "text": "\u3078",
+            "start_s": 0.6,
+            "end_s": 0.9
+          },
+          {
+            "text": "\u884c",
+            "start_s": 0.9,
+            "end_s": 1.2
+          },
+          {
+            "text": "\u304f",
+            "start_s": 1.2,
+            "end_s": 1.5
+          }
+        ]
+      ],
+      "events": {
+        "bold-outline": [
+          {
+            "cue": 0,
+            "start_s": 0.0,
+            "end_s": 1.5,
+            "active": null,
+            "text": "{\\an2}\u6771\u4eac\u3078\u884c\u304f"
+          }
+        ],
+        "active-word": [
+          {
+            "cue": 0,
+            "start_s": 0.0,
+            "end_s": 0.3,
+            "active": 0,
+            "text": "{\\an2}{\\1c&H4DE3FF&}\u6771{\\1c&HFFFFFF&}\u4eac\u3078\u884c\u304f"
+          },
+          {
+            "cue": 0,
+            "start_s": 0.3,
+            "end_s": 0.6,
+            "active": 1,
+            "text": "{\\an2}\u6771{\\1c&H4DE3FF&}\u4eac{\\1c&HFFFFFF&}\u3078\u884c\u304f"
+          },
+          {
+            "cue": 0,
+            "start_s": 0.6,
+            "end_s": 0.9,
+            "active": 2,
+            "text": "{\\an2}\u6771\u4eac{\\1c&H4DE3FF&}\u3078{\\1c&HFFFFFF&}\u884c\u304f"
+          },
+          {
+            "cue": 0,
+            "start_s": 0.9,
+            "end_s": 1.2,
+            "active": 3,
+            "text": "{\\an2}\u6771\u4eac\u3078{\\1c&H4DE3FF&}\u884c{\\1c&HFFFFFF&}\u304f"
+          },
+          {
+            "cue": 0,
+            "start_s": 1.2,
+            "end_s": 1.5,
+            "active": 4,
+            "text": "{\\an2}\u6771\u4eac\u3078\u884c{\\1c&H4DE3FF&}\u304f{\\1c&HFFFFFF&}"
+          }
+        ],
+        "single-word-pop": [
+          {
+            "cue": 0,
+            "start_s": 0.0,
+            "end_s": 0.3,
+            "active": 0,
+            "text": "{\\an2\\fscx100\\fscy100\\t(0,120,\\fscx112\\fscy112)}\u6771"
+          },
+          {
+            "cue": 0,
+            "start_s": 0.3,
+            "end_s": 0.6,
+            "active": 1,
+            "text": "{\\an2\\fscx100\\fscy100\\t(0,120,\\fscx112\\fscy112)}\u4eac"
+          },
+          {
+            "cue": 0,
+            "start_s": 0.6,
+            "end_s": 0.9,
+            "active": 2,
+            "text": "{\\an2\\fscx100\\fscy100\\t(0,120,\\fscx112\\fscy112)}\u3078"
+          },
+          {
+            "cue": 0,
+            "start_s": 0.9,
+            "end_s": 1.2,
+            "active": 3,
+            "text": "{\\an2\\fscx100\\fscy100\\t(0,120,\\fscx112\\fscy112)}\u884c"
+          },
+          {
+            "cue": 0,
+            "start_s": 1.2,
+            "end_s": 1.5,
+            "active": 4,
+            "text": "{\\an2\\fscx100\\fscy100\\t(0,120,\\fscx112\\fscy112)}\u304f"
+          }
+        ],
+        "boxed": [
+          {
+            "cue": 0,
+            "start_s": 0.0,
+            "end_s": 1.5,
+            "active": null,
+            "text": "{\\an2}\u6771\u4eac\u3078\u884c\u304f"
+          }
+        ]
+      }
+    }
+  ],
+  "notes": "a cue's words are the timing words starting inside it when there are as many as the cue has words, else the cue's time shared out by length; active-word and single words show word i from its start to the next word's start (the last to the cue's end)"
+}

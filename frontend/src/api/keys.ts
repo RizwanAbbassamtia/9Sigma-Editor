@@ -17,5 +17,6 @@ export const queryKeys = {
   /** kept for the copied code that still asks for a "stage" payload: the edit payload */
   stagePayload: (id: string, _stage: string) => ["projects", "detail", id, "edit"] as const,
   timing: (id: string) => ["projects", "detail", id, "timing"] as const,
+  captions: (id: string) => ["projects", "detail", id, "captions"] as const,
   renderStatus: (id: string) => ["projects", "detail", id, "render-status"] as const,
 };

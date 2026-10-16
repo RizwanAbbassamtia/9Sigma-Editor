@@ -51,19 +51,23 @@ presets, the export with checksum, the new shell.
 
 ## 2. Shell and routes
 
-`/` = the Edit room list ("My edits": name, length, last change, status; New edit; Open folder;
-Delete to the Recycle Bin), `/edit/:id` = the editor (today's EditReview layout as the main screen:
-live preview monitor, scene strip, transition per cut, popups and captions switches, music, render
-sizes, checks, Render and Export), `/renders` = every rendered file, `/settings` = Paths, Render,
-Captions, Health checks, About (version, update check). A 48 px rail with My edits, Renders,
-Settings, and at the bottom the signed-in person's name with Sign out; `/login` = the sign-in
-page (section 0.3). Dark theme as the CashCow editor tokens.
+`/` = the Edit room list ("My edits": name, shape, length, status, last change; New edit; Open;
+Rename; Open folder; Delete to the Recycle Bin), `/edit/:id` = the editor (today's EditReview
+layout as the main screen: live preview monitor, scene strip with a transition picker per cut,
+then the panels Scenes, Timeline (popups and captions switches, music, volume and dip), Render,
+Captions, Timing on the left and Checks, Export, Details on the right), `/renders` = every
+rendered file, `/settings` = Folders, Render (sizes, quality, encoder speed, H.265 copy, 4K,
+captions, transition pack, camera move), Your account (password), Health checks, About (version,
+update check). A 48 px rail with My edits, Renders, Settings, a light/dark switch, and at the
+bottom the signed-in person's initials with Sign out; `/login` = the sign-in page (section 0.3).
+Dark theme as the CashCow editor tokens.
 
 ## 3. New edit from files (`api/projects.py`: `POST /api/edits`, `models/edit_input.py`)
 
-Form: name; format (16:9 long, 9:16 Short); pictures and clips (many files, order by name or by
-drag), per item an optional caption line; narration audio (mp3/wav/m4a; optional); music file
-(optional; licence note field); caption text (typed paragraphs) or an SRT/VTT file (optional).
+Form: name; format (16:9 long, 9:16 Short); language; pictures and clips (many files, in the
+order added with Move up / Move down, or by file name), per item an optional popup line and, for
+a clip, "keep its sound"; narration audio (mp3/wav/m4a; optional); music file (optional; licence
+note field); caption text (typed paragraphs) or an SRT/VTT file (optional).
 
 The app builds the project folder (`01_media/`, `05_voice/`, `06_images/`, `07_edit/`, `08_export/`,
 `project.json` with `kind: "edit"`), and the first timeline: scene length = narration sentence
@@ -76,14 +80,18 @@ longer) and are muted unless "keep the clip's sound" is ticked.
 
 ## 4. Editor screen (v0.1 scope) and checks
 
-Everything the CashCow Edit review offers today, plus: the timing tool (`VoiceTimingPanel`:
-waveform with draggable sentence starts, Play from here, Shift all after this by ±0.1 s,
-`POST /api/edits/{id}/timing`), the caption editor (edit cue text and times in a table; the ASS
-writer re-runs), "Replace picture" per scene, "Reorder scenes" (drag in the strip, which moves the
-sentences with the scene), "Add scene" from a file, music volume and dip (uses the ducking stem),
-and the quality presets of section 5. Checks kept: music licence note present, loudness, true
-peaks, caption speed (characters per second), picture missing. Every edit is autosaved to
-`07_edit/timeline.json` with a revision and a 20-step undo in the browser.
+Everything the CashCow Edit review offers today, plus: the timing tool (the Timing panel: one
+row per sentence with its start and end, Play from here, Start 0.1 s or 0.5 s earlier or later,
+Move this and the rest 0.5 s earlier or later; `POST /api/edits/{id}/timing`), the caption
+editor (the Captions panel: edit the text and the times in a table, Save, Save as SRT; the ASS
+writer re-runs at the next render), "Replace" per scene, Move up / Move down (which moves the
+sentences with the scene), "Add picture or clip", Remove, music volume and dip (uses the ducking
+stem), "Build the timeline again", and the quality presets of section 5. Checks kept: music
+licence note present, loudness, true peaks, caption speed (characters per second), picture
+missing. The simple choices and the scene changes go to the server at once; a changed transition
+is saved as the whole timeline shortly after the last change (`PUT /api/edits/{id}/timeline`
+with the revision; a stale revision is refused with 409). v0.1 has no undo in the browser: the
+Recycle Bin, "Build the timeline again" and the revision are the safety net (see 7.12).
 
 ## 5. Render and export
 
@@ -97,10 +105,12 @@ clips mean a quality change re-encodes only the final pass.
 
 ## 6. Settings, installer, update
 
-Settings: projects and exports folders (mapped drives allowed), render defaults (sizes, quality,
-encoder speed, captions burned in, caption style), Allow 4K, health checks, About with the version
-and "Check for updates". The installer and runtime are the copied tools with the new names; the
-update check reads `RizwanAbbassamtia/9Sigma-Editor` releases. `docs/INSTALL.md` for the team.
+Settings: edits and exports folders (mapped drives allowed), render defaults (sizes, quality,
+encoder speed, H.265 copy, captions burned in, caption colours and look, transition pack, camera
+move), Allow 4K, your account (change the password), health checks, About with the version and
+"Check for updates". The installer and runtime are the copied tools with the new names and
+without Deno (this app downloads nothing from YouTube); the update check reads
+`RizwanAbbassamtia/9Sigma-Editor` releases. `docs/INSTALL.md` for the team.
 
 ## 7. Decisions recorded during the build (2026-10-16)
 
@@ -137,13 +147,49 @@ update check reads `RizwanAbbassamtia/9Sigma-Editor` releases. `docs/INSTALL.md`
    app data folder: 12 hours, or 30 days with "Keep me signed in") and the middleware that
    answers 401 for every `/api/*` call except sign-in, the sign-in status and the system info.
    Five wrong passwords in a row lock an account for 30 seconds.
+8. **Two clocks in timing.json.** Each sentence has `start_frame`/`end_frame` (its span in
+   `voice.wav`: the first starts at 0, each ends where the next starts, the last ends at the end
+   of the recording) and `start_s`/`end_s` (its place on the timeline: the file order laid end
+   to end). A nudge moves a mark; a reorder permutes the sentences; the timeline builder gets the
+   voice as sentence segments (`voice_segments_of`), so the narration follows the scenes.
+9. **Where the files go.** The narration's original is kept next to `05_voice/voice.wav` as
+   `05_voice/original-<name>`; `01_media/` holds the pictures, clips and music as added, and is
+   the edit's music folder (the music picker lists its audio files).
+10. **The editor's routes** (`api/editing.py`): `GET /api/edits/{id}/edit` (the payload),
+    `POST /api/edits/{id}/edit` with `EditChoices` (sizes, music, captions, popups, volume, dip,
+    rebuild), `PUT /api/edits/{id}/timeline` (autosave with revision), `POST /api/edits/{id}/
+    scenes` (multipart), `POST .../scenes/{n}/picture`, `POST .../scenes/reorder`, `DELETE .../
+    scenes/{n}`, `GET`/`PUT /api/edits/{id}/captions`, `GET /api/edits/{id}/captions.srt`,
+    `GET /api/render-presets`, `POST /api/edits/{id}/render` (`presets` missing = the ticked
+    sizes, `[]` = the preview only; `quality`, `upload_preset`, `h265_copy`, `range`),
+    `GET .../render/status` (polled every second while a render runs; no WebSocket in this
+    app), `POST .../render/cancel`, `POST /api/edits/{id}/export`, `GET /api/renders`. The
+    preview routes keep the engine's `/api/projects/{id}/...` paths; the ids are edit ids. One
+    render runs at a time (`edit/render_jobs.py`); the edit is locked while it runs.
+11. **Render state.** `07_edit/render_state.json` records per size the file, its length and
+    frame size, the render key (content, media fingerprints, quality, upload preset), the quality
+    and upload preset used and the H.265 copy; a finished file is kept while its key matches.
+12. **Simplifications of v0.1** (the owner asked for a usable version on 2026-10-16): the timing
+    tool moves sentences with buttons (0.1 s and 0.5 s steps) rather than a draggable waveform;
+    scenes are reordered with Move up / Move down rather than by drag; there is no 20-step undo
+    in the browser; the live preview shows a clip's poster frame; the 2.5D parallax add-on is
+    not installed (scenes fall back to the Ken Burns move, as the health check says).
+13. **Front end.** The copied screens were reduced to this app: `AppShell` (rail, title bar
+    with the health pill and the update notice), `LoginPage`, `EditsPage` with `NewEditDialog`,
+    `EditorPage` with the panels of section 2, `RendersPage`, `SettingsPage`. The copied
+    components that need no CashCow concept (the live preview engine, the scene strip, the
+    transition picker, the render sizes, the music picker, the UI kit) are kept as they were.
+    The preview fixtures (`frontend/src/preview/fixtures/`) are made again from this engine with
+    `tools/make_preview_fixtures.py`.
 
 ## 8. Tests and proof
 
-All kept tests pass under the new names. New tests: project creation from files in each
-combination (pictures only; with narration; with SRT; with clips; Short), timing nudge, caption
-edit, reorder moves sentences, quality presets produce the expected FFmpeg arguments, upload
-presets' bitrate flags, export checksums, the renders list, settings. A real 3-scene 480p render
-with narration and music. Front-end typecheck, build and vitest. A full install of the Setup EXE
-into a test folder starts the app and renders the sample edit. A short screenshot set of every
-screen under `docs/screens/`.
+All kept tests pass under the new names (the CashCow-only tests about channels, roles, the
+pipeline, providers, the virtual timeline, WebSockets, the audit log, API keys and the depth
+model download were removed; the engine, preview, render, files, auth, edits, timing, caption,
+export, settings, update and installer tests stay). Front-end typecheck, build and vitest pass.
+Proof on 2026-10-16: a 4-scene edit made through `POST /api/edits` from pictures, a silent
+narration, music and caption text; the editor opened in the app; 1080p rendered from the Render
+panel with live progress and exported from the Export panel; the Renders page listed it. Still
+to do: the Setup EXE built and installed into a test folder, and screenshots of every screen
+under `docs/screens/`.

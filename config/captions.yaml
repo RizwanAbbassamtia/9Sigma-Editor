@@ -1,0 +1,79 @@
+# Caption and popup rules per language (backend/sigma_editor/render/captions.py and
+# render/popups.py). Fonts are the Noto files vendored in assets/fonts; a language that is not
+# listed uses `default`. Settings > Render chooses the named style (`styles`).
+
+pause_break_s: 0.35         # a silence longer than this ends a caption
+
+default:
+  font: Noto Sans
+  popup_font: Noto Sans
+  rtl: false
+  max_chars_per_line: 42
+  max_lines: 2
+  space_dependent: true     # words are joined with spaces and lines break at spaces
+  size: 48                  # pixels at 1080p
+
+by_language:
+  Arabic:
+    font: Noto Naskh Arabic
+    popup_font: Noto Sans Arabic
+    rtl: true
+    max_chars_per_line: 36
+  Urdu:
+    font: Noto Naskh Arabic
+    popup_font: Noto Sans Arabic
+    rtl: true
+    max_chars_per_line: 36
+  Hindi:
+    font: Noto Sans Devanagari
+    popup_font: Noto Sans Devanagari
+    max_chars_per_line: 36
+  Japanese:
+    font: Noto Sans JP
+    popup_font: Noto Sans JP
+    max_chars_per_line: 13
+    space_dependent: false  # no spaces between words; lines break by character count
+  Korean:
+    font: Noto Sans KR
+    popup_font: Noto Sans KR
+    max_chars_per_line: 20
+
+# Look presets (captions.style.preset in timeline.json, written by render/captions.py; the live
+# preview draws the same). The default stays bold-outline. Sizes are pixels at 1080p.
+presets:
+  bold-outline:
+    label: Bold outline       # white text with a dark outline, a line or two at a time
+    layout: phrase
+  active-word:
+    label: Active word        # the line stays; the word being spoken changes colour
+    layout: phrase
+    active_colour: "#FFE34D"  # default colour of the spoken word (captions.style.active_colour)
+  single-word-pop:
+    label: Single word pop    # one word at a time, growing a little as it appears
+    layout: single_word
+    pop_scale: 1.12           # from 100 % to 112 % ...
+    pop_s: 0.12               # ... over the first 0.12 s of each word
+  boxed:
+    label: Boxed              # the text on a see-through dark box
+    layout: phrase
+    box: true
+    box_colour: "#000000"
+    box_opacity: 0.55         # 0 = clear, 1 = solid
+    box_padding_px: 12        # space between the text and the box edge
+
+styles:
+  bold-white:
+    primary: "#FFFFFF"
+    outline_colour: "#000000"
+    bold: true
+    outline: 2
+  yellow:
+    primary: "#FFE34D"
+    outline_colour: "#000000"
+    bold: true
+    outline: 2
+  clean:
+    primary: "#FFFFFF"
+    outline_colour: "#202020"
+    bold: false
+    outline: 1

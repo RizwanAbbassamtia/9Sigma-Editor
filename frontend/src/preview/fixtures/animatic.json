@@ -1,0 +1,678 @@
+{
+ "generator": "tools/make_preview_fixtures.py",
+ "storyboard": {
+  "project_id": "fixture-animatic",
+  "format": "long",
+  "aspect": "16:9",
+  "style_guide": "",
+  "negative_rules": "",
+  "popup_style": "",
+  "transition_pack": "cinematic",
+  "motion_style": "ken_burns",
+  "generated_at": "2026-10-12T00:00:00Z",
+  "model": "fixture",
+  "speaking_rate_wpm": 150,
+  "scenes": [
+   {
+    "index": 0,
+    "sentence_ids": [
+     "s1"
+    ],
+    "narration": "The town was quiet that winter.",
+    "est_start_s": 0.0,
+    "est_end_s": 2.5,
+    "est_duration_s": 2.5,
+    "image_prompt": "a quiet town",
+    "negative_prompt": "",
+    "popup": {
+     "text": "Fifty  years earlier",
+     "style": "",
+     "position": "top-left",
+     "in_offset_s": 0.4,
+     "out_offset_s": 3.5,
+     "key_sentence_id": null
+    },
+    "motion": {
+     "preset": "pan_right",
+     "start_rect": [
+      0.0,
+      0.0,
+      1.0,
+      1.0
+     ],
+     "end_rect": [
+      0.1,
+      0.1,
+      0.8,
+      0.8
+     ],
+     "ease": null,
+     "style": null,
+     "strength": null
+    },
+    "transition_out": {
+     "type": "film_dissolve",
+     "duration_s": 0.8,
+     "beat": null
+    },
+    "on_screen_text": null,
+    "image": {
+     "path": null,
+     "status": "pending",
+     "qa": null
+    },
+    "locked": {
+     "popup": false,
+     "motion": false,
+     "transition_out": false,
+     "narration": false,
+     "image": false
+    },
+    "notes": [],
+    "title": "",
+    "clip": null,
+    "clip_duration_s": null,
+    "keep_sound": false,
+    "edited": []
+   },
+   {
+    "index": 1,
+    "sentence_ids": [
+     "s2",
+     "s3"
+    ],
+    "narration": "Nobody noticed the stranger. He paid for everything.",
+    "est_start_s": 2.5,
+    "est_end_s": 7.0,
+    "est_duration_s": 4.5,
+    "image_prompt": "a stranger",
+    "negative_prompt": "",
+    "popup": {
+     "text": null,
+     "style": "",
+     "position": "bottom-left",
+     "in_offset_s": 0.4,
+     "out_offset_s": 3.5,
+     "key_sentence_id": null
+    },
+    "motion": {
+     "preset": "pan_right",
+     "start_rect": [
+      0.0,
+      0.0,
+      1.0,
+      1.0
+     ],
+     "end_rect": [
+      0.1,
+      0.1,
+      0.8,
+      0.8
+     ],
+     "ease": null,
+     "style": null,
+     "strength": null
+    },
+    "transition_out": {
+     "type": "whip_right",
+     "duration_s": 0.5,
+     "beat": null
+    },
+    "on_screen_text": null,
+    "image": {
+     "path": null,
+     "status": "pending",
+     "qa": null
+    },
+    "locked": {
+     "popup": false,
+     "motion": false,
+     "transition_out": false,
+     "narration": false,
+     "image": false
+    },
+    "notes": [],
+    "title": "",
+    "clip": null,
+    "clip_duration_s": null,
+    "keep_sound": false,
+    "edited": []
+   },
+   {
+    "index": 2,
+    "sentence_ids": [
+     "s4"
+    ],
+    "narration": "Then he was gone.",
+    "est_start_s": 7.0,
+    "est_end_s": 9.0,
+    "est_duration_s": 2.0,
+    "image_prompt": "an empty street",
+    "negative_prompt": "",
+    "popup": {
+     "text": "Gone",
+     "style": "pop",
+     "position": "center",
+     "in_offset_s": 0.4,
+     "out_offset_s": 3.5,
+     "key_sentence_id": null
+    },
+    "motion": {
+     "preset": "hold",
+     "start_rect": [
+      0.0,
+      0.0,
+      1.0,
+      1.0
+     ],
+     "end_rect": [
+      0.1,
+      0.1,
+      0.8,
+      0.8
+     ],
+     "ease": null,
+     "style": null,
+     "strength": null
+    },
+    "transition_out": {
+     "type": "zoom_through",
+     "duration_s": 1.0,
+     "beat": null
+    },
+    "on_screen_text": null,
+    "image": {
+     "path": null,
+     "status": "pending",
+     "qa": null
+    },
+    "locked": {
+     "popup": false,
+     "motion": false,
+     "transition_out": false,
+     "narration": false,
+     "image": false
+    },
+    "notes": [],
+    "title": "",
+    "clip": null,
+    "clip_duration_s": null,
+    "keep_sound": false,
+    "edited": []
+   },
+   {
+    "index": 3,
+    "sentence_ids": [
+     "s5"
+    ],
+    "narration": "Years later the letter arrived.",
+    "est_start_s": 9.0,
+    "est_end_s": 11.5,
+    "est_duration_s": 2.5,
+    "image_prompt": "a letter",
+    "negative_prompt": "",
+    "popup": {
+     "text": null,
+     "style": "",
+     "position": "bottom-left",
+     "in_offset_s": 0.4,
+     "out_offset_s": 3.5,
+     "key_sentence_id": null
+    },
+    "motion": {
+     "preset": "zoom_out",
+     "start_rect": [
+      0.0,
+      0.0,
+      1.0,
+      1.0
+     ],
+     "end_rect": [
+      0.1,
+      0.1,
+      0.8,
+      0.8
+     ],
+     "ease": null,
+     "style": null,
+     "strength": null
+    },
+    "transition_out": {
+     "type": "fade",
+     "duration_s": 2.0,
+     "beat": null
+    },
+    "on_screen_text": null,
+    "image": {
+     "path": null,
+     "status": "pending",
+     "qa": null
+    },
+    "locked": {
+     "popup": false,
+     "motion": false,
+     "transition_out": false,
+     "narration": false,
+     "image": false
+    },
+    "notes": [],
+    "title": "",
+    "clip": null,
+    "clip_duration_s": null,
+    "keep_sound": false,
+    "edited": []
+   }
+  ],
+  "variety": {
+   "scenes": 0,
+   "avg_scene_s": 0.0,
+   "popup_share": 0.0,
+   "distinct_transitions": 0,
+   "distinct_motions": 0,
+   "warnings": [],
+   "transition_histogram": {}
+  },
+  "gate_results": [],
+  "notes": [],
+  "schema_version": 1,
+  "revision": 0,
+  "saved_at": null
+ },
+ "timing": {
+  "duration_s": 12.05,
+  "sample_rate": 48000,
+  "source": "provider_word",
+  "sentences": [
+   {
+    "id": "s1",
+    "text": "The town was quiet that winter.",
+    "start_s": 0.12,
+    "end_s": 2.4,
+    "words": [
+     {
+      "text": "The",
+      "start_s": 0.12,
+      "end_s": 0.3
+     },
+     {
+      "text": "town",
+      "start_s": 0.32,
+      "end_s": 0.7
+     },
+     {
+      "text": "was",
+      "start_s": 0.72,
+      "end_s": 0.9
+     },
+     {
+      "text": "quiet",
+      "start_s": 0.95,
+      "end_s": 1.5
+     },
+     {
+      "text": "that",
+      "start_s": 1.55,
+      "end_s": 1.8
+     },
+     {
+      "text": "winter.",
+      "start_s": 1.85,
+      "end_s": 2.4
+     }
+    ]
+   },
+   {
+    "id": "s2",
+    "text": "Nobody noticed the stranger.",
+    "start_s": 2.6,
+    "end_s": 5.1,
+    "words": []
+   },
+   {
+    "id": "s3",
+    "text": "He paid for everything.",
+    "start_s": 5.3,
+    "end_s": 7.95,
+    "words": []
+   },
+   {
+    "id": "s4",
+    "text": "Then he was gone.",
+    "start_s": 8.4,
+    "end_s": 9.6,
+    "words": []
+   },
+   {
+    "id": "s5",
+    "text": "Years later the letter arrived.",
+    "start_s": 9.8,
+    "end_s": 12.05,
+    "words": []
+   }
+  ]
+ },
+ "pictures": [
+  {
+   "scene": 0,
+   "path": "06_images/scene_01.png",
+   "width": 2560,
+   "height": 1440
+  },
+  {
+   "scene": 1,
+   "path": "06_images/scene_02.png",
+   "width": 1920,
+   "height": 1080
+  },
+  {
+   "scene": 2,
+   "path": "06_images/scene_03.png",
+   "width": 1024,
+   "height": 1024
+  },
+  {
+   "scene": 3,
+   "path": "06_images/scene_04.png",
+   "width": 1440,
+   "height": 2560
+  }
+ ],
+ "timeline": {
+  "version": 1,
+  "project_id": "fixture-animatic",
+  "format": "long",
+  "aspect": "16:9",
+  "fps": 30,
+  "width": 1920,
+  "height": 1080,
+  "duration_s": 12.85,
+  "voice": {
+   "path": "05_voice/voice.wav",
+   "start_s": 0.0,
+   "segments": [
+    {
+     "sentence_id": "s1",
+     "src_start_s": 0.12,
+     "src_end_s": 2.4,
+     "at_s": 0.12
+    },
+    {
+     "sentence_id": "s2",
+     "src_start_s": 2.6,
+     "src_end_s": 5.1,
+     "at_s": 2.6
+    },
+    {
+     "sentence_id": "s3",
+     "src_start_s": 5.3,
+     "src_end_s": 7.95,
+     "at_s": 5.3
+    },
+    {
+     "sentence_id": "s4",
+     "src_start_s": 8.4,
+     "src_end_s": 9.6,
+     "at_s": 8.4
+    },
+    {
+     "sentence_id": "s5",
+     "src_start_s": 9.8,
+     "src_end_s": 12.05,
+     "at_s": 9.8
+    }
+   ]
+  },
+  "music": {
+   "path": null,
+   "start_s": 0.0,
+   "gain_db": -18.0,
+   "duck_db": -12.0,
+   "duck_attack_s": 0.3,
+   "duck_release_s": 0.8,
+   "fade_in_s": 1.0,
+   "fade_out_s": 2.0,
+   "license_ok": false,
+   "stem": null,
+   "envelope": null
+  },
+  "scenes": [
+   {
+    "index": 0,
+    "image": "06_images/scene_01.png",
+    "start_s": 0.0,
+    "end_s": 2.6,
+    "motion": {
+     "preset": "pan_left",
+     "start_rect": [
+      384.0,
+      108.0,
+      2176.0,
+      1224.0
+     ],
+     "end_rect": [
+      0.0,
+      108.0,
+      2176.0,
+      1224.0
+     ],
+     "style": "ken_burns",
+     "strength": 0.035,
+     "ease": null
+    },
+    "transition_out": {
+     "type": "film_dissolve",
+     "duration_s": 0.65
+    },
+    "locked": false,
+    "sentence_ids": [
+     "s1"
+    ],
+    "edited": []
+   },
+   {
+    "index": 1,
+    "image": "06_images/scene_02.png",
+    "start_s": 2.6,
+    "end_s": 8.4,
+    "motion": {
+     "preset": "pan_right",
+     "start_rect": [
+      0.0,
+      81.0,
+      1632.0,
+      918.0
+     ],
+     "end_rect": [
+      288.0,
+      81.0,
+      1632.0,
+      918.0
+     ],
+     "style": "ken_burns",
+     "strength": 0.035,
+     "ease": null
+    },
+    "transition_out": {
+     "type": "whip_left",
+     "duration_s": 0.35
+    },
+    "locked": false,
+    "sentence_ids": [
+     "s2",
+     "s3"
+    ],
+    "edited": []
+   },
+   {
+    "index": 2,
+    "image": "06_images/scene_03.png",
+    "start_s": 8.4,
+    "end_s": 9.8,
+    "motion": {
+     "preset": "slow_push",
+     "start_rect": [
+      0.0,
+      224.0,
+      1024.0,
+      576.0
+     ],
+     "end_rect": [
+      40.96,
+      247.04,
+      942.08,
+      529.92
+     ],
+     "style": "ken_burns",
+     "strength": 0.035,
+     "ease": null
+    },
+    "transition_out": {
+     "type": "zoom_through",
+     "duration_s": 0.35
+    },
+    "locked": false,
+    "sentence_ids": [
+     "s4"
+    ],
+    "edited": []
+   },
+   {
+    "index": 3,
+    "image": "06_images/scene_04.png",
+    "start_s": 9.8,
+    "end_s": 12.85,
+    "motion": {
+     "preset": "zoom_in",
+     "start_rect": [
+      0.0,
+      875.0,
+      1440.0,
+      810.0
+     ],
+     "end_rect": [
+      144.0,
+      956.0,
+      1152.0,
+      648.0
+     ],
+     "style": "ken_burns",
+     "strength": 0.035,
+     "ease": null
+    },
+    "transition_out": {
+     "type": "film_dissolve",
+     "duration_s": 0.762
+    },
+    "locked": false,
+    "sentence_ids": [
+     "s5"
+    ],
+    "edited": []
+   }
+  ],
+  "popups": [
+   {
+    "scene": 0,
+    "text": "Fifty years earlier",
+    "style": "",
+    "position": "top-left",
+    "start_s": 0.42,
+    "end_s": 2.4,
+    "anim": "slide_left",
+    "png": "",
+    "id": "pop-001",
+    "anchor": null,
+    "edited": false,
+    "locked": false
+   },
+   {
+    "scene": 2,
+    "text": "Gone",
+    "style": "pop",
+    "position": "center",
+    "start_s": 8.7,
+    "end_s": 9.6,
+    "anim": "pop",
+    "png": "",
+    "id": "pop-002",
+    "anchor": null,
+    "edited": false,
+    "locked": false
+   }
+  ],
+  "captions": {
+   "enabled": true,
+   "style": {
+    "font": "Noto Sans",
+    "size": 48,
+    "primary": "#FFFFFF",
+    "outline": 2,
+    "position": "bottom",
+    "max_lines": 2,
+    "max_chars_per_line": 42,
+    "rtl": false,
+    "bold": true,
+    "outline_colour": "#000000",
+    "preset": "bold-outline",
+    "active_colour": "#FFE34D",
+    "layout": "phrase"
+   },
+   "cues": [
+    {
+     "start_s": 0.12,
+     "end_s": 2.4,
+     "text": "The town was quiet that winter.",
+     "id": "cue-0001",
+     "edited": false
+    },
+    {
+     "start_s": 2.6,
+     "end_s": 5.1,
+     "text": "Nobody noticed the stranger.",
+     "id": "cue-0002",
+     "edited": false
+    },
+    {
+     "start_s": 5.3,
+     "end_s": 7.95,
+     "text": "He paid for everything.",
+     "id": "cue-0003",
+     "edited": false
+    },
+    {
+     "start_s": 8.4,
+     "end_s": 9.6,
+     "text": "Then he was gone.",
+     "id": "cue-0004",
+     "edited": false
+    },
+    {
+     "start_s": 9.8,
+     "end_s": 12.05,
+     "text": "Years later the letter arrived.",
+     "id": "cue-0005",
+     "edited": false
+    }
+   ]
+  },
+  "intro": {
+   "path": null
+  },
+  "outro": {
+   "path": null
+  },
+  "presets": [
+   "1080p"
+  ],
+  "proxy": {
+   "width": 854,
+   "height": 480
+  },
+  "revision": 1,
+  "markers": [],
+  "render": {
+   "preview_gain_db": null
+  }
+ },
+ "warnings": []
+}

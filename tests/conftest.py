@@ -92,6 +92,14 @@ def anon_client(app) -> Iterator[TestClient]:
 
 
 @pytest.fixture
+def edit(client: TestClient) -> tuple[str, Path]:
+    """An edit made straight in the store (its folder and subfolders exist, no files yet):
+    ``(project_id, folder)``. The ``client`` that owns it is signed in as user1."""
+    project = client.app.state.store.create("Kind Ledger", format="long", language="English")
+    return project.id, Path(project.folder)
+
+
+@pytest.fixture
 def quiet_explorer(monkeypatch: pytest.MonkeyPatch) -> list[Path]:
     """Records the folders "Open folder" would show instead of starting Explorer."""
     opened: list[Path] = []

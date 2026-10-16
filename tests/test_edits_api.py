@@ -5,8 +5,10 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 
+from sigma_editor.app import create_app
 from sigma_editor.edit.timing_doc import estimated_timing, write_timing
 from sigma_editor.storage.project_store import ProjectStore
 
@@ -15,13 +17,18 @@ def make_edit(data_dirs: dict[str, Path], name: str = "Autumn walk", **fields: o
     return ProjectStore(data_dirs["projects"]).create(name, **fields)
 
 
-def test_system_info_and_no_frontend_page(client: TestClient, data_dirs: dict[str, Path]):
+def test_system_info_and_no_frontend_page(
+    client: TestClient, data_dirs: dict[str, Path], monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+):
     info = client.get("/api/system/info").json()
     assert info["version"]
     assert info["projects_dir"] == str(data_dirs["projects"])
     assert info["port"] == 8766
     assert "auth_required" not in info
-    page = client.get("/")
+    # Without a built front end (frontend/dist) the page says how to build it.
+    monkeypatch.setenv("SGE_FRONTEND_DIST", str(tmp_path / "no-dist"))
+    with TestClient(create_app()) as bare:
+        page = bare.get("/")
     assert page.status_code == 200
     assert "9Sigma Editor is running" in page.text
 

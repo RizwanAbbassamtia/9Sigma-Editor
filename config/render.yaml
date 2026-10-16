@@ -1,0 +1,128 @@
+# Render settings for the edit stage (backend/sigma_editor/render/). Values here apply to
+# every channel; Settings > Render chooses the default presets, the x264 speed and whether 4K
+# is allowed. Anything missing falls back to the same defaults built into render/presets.py.
+
+fps: 30
+tail_s: 0.8                 # the last scene runs this long past the end of the voice
+scale_flags: lanczos        # scaler used to fit the pictures to the frame
+
+x264:
+  preset: medium            # Settings > Render overrides this (ultrafast ... veryslow)
+  crf: 20
+  profile: high
+  pix_fmt: yuv420p
+  movflags: +faststart
+
+audio:
+  codec: aac
+  bitrate_kbps: 192
+  sample_rate: 48000
+  loudnorm: { i: -16, tp: -1.5, lra: 11 }   # EBU R128 target: -16 LUFS, true peak -1.5 dBTP
+
+ducking:                    # sidechaincompress: the voice ducks the music
+  threshold: 0.03
+  ratio: 8
+  attack_ms: 300
+  release_ms: 800
+
+music:
+  gain_db: -18
+  fade_in_s: 1.0
+  fade_out_s: 2.0
+
+# Frame sizes per preset for a 16:9 (landscape) and a 9:16 (portrait) video. The pictures are
+# first fitted to a larger "canvas" (canvas_scale x the frame, at most max_canvas_px wide or
+# tall) so the camera move is smooth; a bigger canvas costs memory (about 6 MB per scene at
+# 2560 px for every scene of the video at once).
+presets:
+  720p:
+    landscape: [1280, 720]
+    portrait: [720, 1280]
+    crf: 20
+    canvas_scale: 2.0
+    max_canvas_px: 2560
+  1080p:
+    landscape: [1920, 1080]
+    portrait: [1080, 1920]
+    crf: 20
+    canvas_scale: 1.5
+    max_canvas_px: 2880
+  2160p:
+    landscape: [3840, 2160]
+    portrait: [2160, 3840]
+    crf: 20
+    canvas_scale: 1.0
+    max_canvas_px: 3840
+    requires_enable_4k: true
+
+proxy:                      # always rendered; what the review screen plays
+  landscape: [854, 480]
+  portrait: [480, 854]
+  crf: 30
+  x264_preset: ultrafast
+  canvas_scale: 1.0
+  max_canvas_px: 1280
+
+transitions:
+  max_share_of_shorter_scene: 0.25   # a transition never takes more than a quarter of a scene
+  min_frames: 2
+
+popups:                     # sizes at 1080p; scaled by min(width, height) / 1080
+  font_px: 64
+  padding_px: 24
+  radius_px: 18
+  margin_px: 60
+  max_width_share: 0.8
+  fade_s: 0.3
+  slide_s: 0.35
+  slide_px: 120
+  lead_s: 0.3               # a popup appears this long after its key sentence starts
+  max_show_s: 4.0
+  end_margin_s: 0.2         # ... and leaves this long before the scene ends
+  min_show_s: 0.6
+
+captions:
+  margin_v_px: 60           # at 1080p; the ASS file scales with the frame
+  outline: 2
+  shadow: 0
+
+# Camera moves over each picture (Motion v2, render/motion.py; maths in
+# docs/design/MOTION-PARITY.md). Every move eases in and out between its start and end
+# framing; the presets (zoom, pan, drift, tilt, dolly, handheld ...) live in render/motion.py.
+motion:
+  style: ken_burns          # default for new videos: ken_burns or parallax. A channel's
+                            # images.motion_style and a storyboard's own choice win.
+  easing: ease_in_out_cubic
+  handheld_amplitude: 0.004 # the handheld wobble: at most 0.4 % of the visible width
+  interpolation: lanczos    # Ken Burns frames drawn in Python: lanczos (sharpest), cubic,
+                            # linear (FFmpeg zoompan draws them unless clips.ken_burns: python)
+  proxy_interpolation: linear
+
+# 2.5D parallax: near things move more than far things as the camera moves. Needs the depth
+# model below (downloaded once from Settings > Render); without it those scenes use the
+# Ken Burns move and the edit review says so.
+parallax:
+  strength: 0.035           # how far (share of the frame width) the nearest things move
+                            # against the farthest during a typical pan
+  interpolation: cubic      # cubic keeps parallax within twice the cost of Ken Burns
+  grid_step_px: 8           # depth displacement worked out every 8 px at 1080p (scaled)
+  iterations: 2
+  inpaint_radius: 3         # background filled in behind near objects (TELEA radius)
+  object_scale: 0.25        # near objects up to this share of the short side get a layer
+  layer_threshold: 0.08     # how much nearer than its surroundings an object must be
+  edge_threshold: 0.1       # how sharp its depth edge must be
+  max_overscan: 0.03        # windows tighten by at most 3 % so no edge pixels smear in
+  mesh: [64, 36]            # the browser preview's displacement mesh (M5)
+  depth_model:
+    id: depth-anything-v2-small
+    label: Depth Anything V2 Small
+    file: depth_anything_v2_small.onnx
+    # ONNX export by onnx-community of depth-anything/Depth-Anything-V2-Small (Apache-2.0),
+    # pinned to one revision; the SHA-256 is checked after the download.
+    url: https://huggingface.co/onnx-community/depth-anything-v2-small/resolve/4472b7362082ad9968fee890ca0f1e5aca36b93d/onnx/model.onnx
+    sha256: afb6a5c28f3b6bf1618c6e43f02073ef9dfdc70e937502d51603e57b0a1df10c
+    size_bytes: 99060839
+    license: Apache-2.0
+    source: https://huggingface.co/onnx-community/depth-anything-v2-small
+    input_size: 518         # the short side the model sees (a multiple of 14)
+    threads: 0              # 0 = half the logical cores, at most 4

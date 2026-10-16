@@ -38,13 +38,18 @@ def test_estimated_timing_needs_text():
         estimated_timing("   ", 10.0)
 
 
-def test_timing_from_cues_keeps_the_file_times():
+def test_timing_from_cues_tiles_the_recording_from_the_file_marks():
+    """A caption file's cue times become the sentences' start marks in the recording; the
+    spans then tile the recording: the first sentence starts at 0, each ends where the next
+    one starts and the last ends at the recording's end."""
     cues = [ImportedCue(0.5, 2.0, "Hello there,"), ImportedCue(2.1, 3.0, "friend."),
             ImportedCue(4.0, 5.5, "Bye.")]
     doc = timing_from_cues(cues, 6.0)
     assert doc.source == "captions"
     assert doc.timing_confidence == "medium"
-    assert [(s.start_s, s.end_s) for s in doc.sentences] == [(0.5, 3.0), (4.0, 5.5)]
+    assert [s.text for s in doc.sentences] == ["Hello there, friend.", "Bye."]
+    assert [(s.start_s, s.end_s) for s in doc.sentences] == [(0.0, 4.0), (4.0, 6.0)]
+    assert [s.start_frame for s in doc.sentences] == [0, 4 * 48000]
     assert doc.duration_s == 6.0
     with pytest.raises(TimingError):
         timing_from_cues([], 6.0)

@@ -10,7 +10,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import type { EditInput, OpenFolderResponse, Project, ProjectSummary } from "../types/project";
-import type { Timeline } from "../types/timeline";
+import type { CaptionCue, EditChoices, Timeline } from "../types/timeline";
 import type { TimingDoc } from "../types/timing";
 import { api } from "./client";
 import { queryKeys } from "./keys";
@@ -96,18 +96,8 @@ export function saveTimeline(id: string, body: TimelineSave): Promise<TimelineSa
   return api.put<TimelineSaved>(`${base(id)}/timeline`, body);
 }
 
-export interface TimelineEdits {
-  presets?: string[];
-  music_path?: string | null;
-  captions_enabled?: boolean;
-  popups_enabled?: boolean;
-  music_gain_db?: number;
-  music_duck_db?: number;
-  rebuild?: boolean;
-}
-
 /** `POST /api/edits/{id}/edit`: the simple choices (sizes, music, switches, volume and dip). */
-export function applyEdits<T = unknown>(id: string, edits: TimelineEdits): Promise<T> {
+export function applyEdits<T = unknown>(id: string, edits: EditChoices): Promise<T> {
   return api.post<T>(`${base(id)}/edit`, edits);
 }
 
@@ -133,6 +123,12 @@ export function nudgeTiming(id: string, body: TimingNudge): Promise<TimingDoc> {
 
 // ---- scenes ---------------------------------------------------------------------------------
 
+/** What the scene routes answer: the fresh editor payload (raw) and plain-English warnings. */
+export interface EditedPayload {
+  payload: unknown;
+  warnings: string[];
+}
+
 export interface AddSceneOptions {
   caption?: string;
   keep_sound?: boolean;
@@ -141,29 +137,57 @@ export interface AddSceneOptions {
 }
 
 /** `POST /api/edits/{id}/scenes`: a new scene from a picture or clip file. */
-export function addScene<T = unknown>(id: string, file: File, options: AddSceneOptions = {}): Promise<T> {
+export function addScene(id: string, file: File, options: AddSceneOptions = {}): Promise<EditedPayload> {
   const body = new FormData();
   body.append("file", file, file.name);
   if (options.caption) body.append("caption", options.caption);
   if (options.keep_sound) body.append("keep_sound", "true");
   if (options.after !== undefined) body.append("after", String(options.after));
-  return api.upload<T>(`${base(id)}/scenes`, body);
+  return api.upload<EditedPayload>(`${base(id)}/scenes`, body);
 }
 
 /** `POST /api/edits/{id}/scenes/{index}/picture`: replace one scene's picture or clip. */
-export function replaceScenePicture<T = unknown>(id: string, index: number, file: File): Promise<T> {
+export function replaceScenePicture(id: string, index: number, file: File): Promise<EditedPayload> {
   const body = new FormData();
   body.append("file", file, file.name);
-  return api.upload<T>(`${base(id)}/scenes/${index}/picture`, body);
+  return api.upload<EditedPayload>(`${base(id)}/scenes/${index}/picture`, body);
 }
 
 /** `POST /api/edits/{id}/scenes/reorder`: the new order as the old 0-based indexes. */
-export function reorderScenes<T = unknown>(id: string, order: number[]): Promise<T> {
-  return api.post<T>(`${base(id)}/scenes/reorder`, { order });
+export function reorderScenes(id: string, order: number[]): Promise<EditedPayload> {
+  return api.post<EditedPayload>(`${base(id)}/scenes/reorder`, { order });
 }
 
-export function removeScene<T = unknown>(id: string, index: number): Promise<T> {
-  return api.delete<T>(`${base(id)}/scenes/${index}`);
+export function removeScene(id: string, index: number): Promise<EditedPayload> {
+  return api.delete<EditedPayload>(`${base(id)}/scenes/${index}`);
+}
+
+// ---- captions ---------------------------------------------------------------------------------
+
+export interface CueInput {
+  id: string;
+  start_s: number;
+  end_s: number;
+  text: string;
+}
+
+export interface CaptionsBody {
+  cues: CueInput[];
+}
+
+export interface CaptionsView {
+  enabled: boolean;
+  cues: CaptionCue[];
+  revision: number;
+}
+
+export function getCaptions(id: string): Promise<CaptionsView> {
+  return api.get<CaptionsView>(`${base(id)}/captions`);
+}
+
+/** `PUT /api/edits/{id}/captions`: the caption table (text and times). */
+export function saveCaptions(id: string, body: CaptionsBody): Promise<CaptionsView> {
+  return api.put<CaptionsView>(`${base(id)}/captions`, body);
 }
 
 // ---- render and export ------------------------------------------------------------------------
@@ -172,7 +196,8 @@ export type Quality = "standard" | "high" | "best";
 export type UploadPreset = "none" | "youtube_1080p" | "youtube_4k";
 
 export interface RenderRequest {
-  presets: string[];
+  /** the sizes to render; missing = the edit's ticked sizes, [] = the preview only */
+  presets?: string[];
   quality?: Quality;
   upload_preset?: UploadPreset;
   h265_copy?: boolean;
@@ -187,6 +212,7 @@ export interface RenderStarted {
 
 export interface RenderStatus {
   running: boolean;
+  job_id: string | null;
   preset: string | null;
   /** 0-100, or null when unknown */
   pct: number | null;
@@ -194,6 +220,10 @@ export interface RenderStatus {
   error: string | null;
   /** when the last render finished, so the page knows to refresh the payload */
   finished_at: string | null;
+  /** the sizes the last render made */
+  rendered: string[];
+  /** the sizes the last render found up to date and kept */
+  kept: string[];
 }
 
 export function startRender(id: string, body: RenderRequest): Promise<RenderStarted> {

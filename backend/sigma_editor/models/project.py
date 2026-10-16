@@ -4,8 +4,8 @@ Stored as ``project.json`` in the edit's folder (docs/CONTRACT-v0.1.md section 3
 
     <projects_dir>/<YYYY-MM-DD>_<name-slug>/
         project.json      this model (``kind: "edit"``)
-        01_media/         the person's own files as they were added (clips, extra copies)
-        05_voice/         voice.wav (the narration, converted) and timing.json (sentences)
+        01_media/         the person's own pictures and clips as they were added, and the music
+        05_voice/         voice.wav (the narration, converted), its original, timing.json
         06_images/        scene_01.png ... the pictures and clip poster frames
         07_edit/          timeline.json, render_state.json, captions.ass, the renders
         08_export/        what Export wrote, and export.json (where it went)

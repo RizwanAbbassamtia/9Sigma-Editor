@@ -47,10 +47,12 @@ REPLACEMENTS: list[tuple[str, str]] = [
     ("CCS_", "SGE_"),
     ("CashCow", "9Sigma"),
     ("cashcow", "sigma"),
-    ("8765", "8766"),
 ]
 WORD_REPLACEMENTS: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"\bccs\b"), "sge"),
+    # The port, only as a whole number: a plain "8765" replacement once changed digits inside
+    # the preview fixtures' decimals (they were made again with tools/make_preview_fixtures.py).
+    (re.compile(r"(?<![0-9.])8765(?![0-9])"), "8766"),
 ]
 
 BACKEND = "backend/cashcow_studio/"

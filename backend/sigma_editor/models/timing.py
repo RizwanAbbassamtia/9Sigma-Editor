@@ -17,10 +17,13 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, model_validator
 
-TimingSource = Literal["provider_word", "provider_sentence", "estimated", "aligned", "captions"]
+TimingSource = Literal[
+    "provider_word", "provider_sentence", "estimated", "aligned", "captions", "scenes"
+]
 """Where the times come from: ``estimated`` (shared out by word count over the narration),
-``captions`` (an SRT/VTT file's own times), ``aligned`` (a speech-to-text tool, later),
-``provider_word`` / ``provider_sentence`` (kept for timing files made by CashCow Studio)."""
+``captions`` (an SRT/VTT file's own times), ``scenes`` (no caption text: one empty sentence
+per scene), ``aligned`` (a speech-to-text tool, later), ``provider_word`` /
+``provider_sentence`` (kept for timing files made by CashCow Studio)."""
 WordSource = Literal["provider", "estimated", "aligner"]
 TimingConfidence = Literal["high", "medium", "low"]
 

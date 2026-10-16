@@ -71,7 +71,7 @@ def safe_file_name(name: str, fallback: str = "file") -> str:
     120 characters, never empty or a reserved device name."""
     base = Path(str(name or "").replace("\\", "/")).name
     cleaned = _UNSAFE.sub("_", base).strip(" .")
-    if not cleaned:
+    if not cleaned or not cleaned.strip("_"):
         cleaned = fallback
     stem, dot, suffix = cleaned.rpartition(".")
     if not dot:
@@ -79,7 +79,8 @@ def safe_file_name(name: str, fallback: str = "file") -> str:
     reserved = {"con", "prn", "aux", "nul"} | {f"com{i}" for i in range(1, 10)} | {
         f"lpt{i}" for i in range(1, 10)
     }
-    if stem.lower() in reserved:
+    # Windows reserves the part before the FIRST dot: "com1.tar.gz" is the COM1 device too.
+    if stem.split(".", 1)[0].lower() in reserved:
         stem = f"{stem}_"
     if len(stem) > 110:
         stem = stem[:110].rstrip(" .") or fallback
