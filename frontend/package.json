@@ -1,7 +1,7 @@
 {
   "name": "9sigma-editor-frontend",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.2.0",
   "type": "module",
   "description": "9Sigma Editor desktop UI (Vite + React + TypeScript), served by the Python backend from frontend/dist.",
   "scripts": {
