@@ -4,7 +4,8 @@ Owner's brief (2026-10-14): "the editing panel as a separate editing tool with a
 working independently for the user; a desktop app like CapCut or Adobe; the existing CashCow
 Studio stays as it is; this is an extra app." Decisions the owner made the same day: an
 **independent copy** (the editor develops on its own from the copy; no sync with CashCow Studio),
-**no sign-in** (a single-user desktop app), and the editor shown in the "editor, explained"
+**no sign-in** (a single-user desktop app; changed on 2026-10-16: the owner asked for sign-in
+with ten preset accounts, `user1` to `user10`, see the contract section 0.3), and the editor shown in the "editor, explained"
 video, meaning the Edit room of `EDITOR-DESIGN.md`. AI help is optional and comes later as
 Suggest buttons through the person's own Claude sign-in; the first releases are manual editing.
 

@@ -1,4 +1,4 @@
-"""The ``sge`` command line: ``serve``, ``open`` and ``doctor``."""
+"""The ``sge`` command line: ``serve``, ``open``, ``doctor`` and ``users`` (the accounts)."""
 
 from __future__ import annotations
 
@@ -11,6 +11,7 @@ import urllib.request
 import webbrowser
 from collections.abc import MutableMapping
 from pathlib import Path
+from typing import Any
 
 import typer
 import uvicorn
@@ -23,6 +24,12 @@ app = typer.Typer(
     add_completion=False,
     no_args_is_help=True,
 )
+users_app = typer.Typer(
+    help="The accounts that may use the app on this laptop (user1 to user10 to begin with).",
+    add_completion=False,
+    no_args_is_help=True,
+)
+app.add_typer(users_app, name="users")
 
 WINDOW_TITLE = "9Sigma Editor"
 WINDOW_SIZE = (1440, 900)
@@ -103,6 +110,86 @@ def doctor() -> None:
     report = run_all(load_settings())
     typer.echo(format_report(report))
     raise typer.Exit(code=0 if report.ok else 1)
+
+
+# Accounts ------------------------------------------------------------------------------------
+
+
+def _user_store() -> Any:
+    from .auth.users import UserStore
+    from .config import users_defaults_file
+
+    settings = load_settings()
+    return UserStore(settings.app_data_dir, users_defaults_file())
+
+
+@users_app.command(name="list")
+def users_list() -> None:
+    """Show the accounts: user name, display name, on or off."""
+    store = _user_store()
+    users = store.load()
+    if not users:
+        typer.echo("No accounts yet. Run: sge users add <username>")
+        raise typer.Exit(code=0)
+    width = max(len(user.username) for user in users)
+    for user in users:
+        state = "on" if user.enabled else "off"
+        typer.echo(f"{user.username:<{width}}  {user.name:<20}  {state}")
+    typer.echo(f"\n{len(users)} account(s) in {store.path}")
+
+
+@users_app.command(name="set-password")
+def users_set_password(
+    username: str = typer.Argument(..., help="The account, for example user3."),
+    password: str | None = typer.Argument(
+        None, help="The new password (at least 8 characters). Left out: one is made up."
+    ),
+) -> None:
+    """Give an account a new password (made up when none is given) and print it."""
+    from .auth.passwords import generate_password
+    from .auth.users import UserStoreError
+
+    chosen = password or generate_password()
+    try:
+        user = _user_store().set_password(username, chosen)
+    except UserStoreError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=1) from exc
+    typer.echo(f"{user.username}: the password is now {chosen}")
+
+
+@users_app.command(name="add")
+def users_add(
+    username: str = typer.Argument(..., help="A new account name, for example user11."),
+    display_name: str = typer.Option("", "--name", help="The name shown in the app."),
+) -> None:
+    """Add an account with a made-up password and print it."""
+    from .auth.passwords import generate_password
+    from .auth.users import UserStoreError
+
+    password = generate_password()
+    try:
+        user = _user_store().add(username, password, display_name)
+    except UserStoreError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=1) from exc
+    typer.echo(f"{user.username} added. The password is {password}")
+
+
+@users_app.command(name="enable")
+def users_enable(
+    username: str = typer.Argument(..., help="The account to turn on."),
+    off: bool = typer.Option(False, "--off", help="Turn the account off instead."),
+) -> None:
+    """Turn an account on (or off with --off): an account that is off cannot sign in."""
+    from .auth.users import UserStoreError
+
+    try:
+        user = _user_store().set_enabled(username, not off)
+    except UserStoreError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=1) from exc
+    typer.echo(f"{user.username} is now {'on' if user.enabled else 'off'}.")
 
 
 # Helpers -------------------------------------------------------------------------------------

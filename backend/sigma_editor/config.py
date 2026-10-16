@@ -102,6 +102,23 @@ NESTED_MODELS: dict[str, type[BaseModel]] = {
 }
 
 
+def repo_root() -> Path:
+    """The folder that holds ``backend``, ``config`` and ``assets`` (the repository, or the
+    installed app folder)."""
+    return Path(__file__).resolve().parents[2]
+
+
+def config_dir() -> Path:
+    """``config/`` next to the package (``SGE_CONFIG_DIR`` overrides it)."""
+    override = os.environ.get("SGE_CONFIG_DIR", "").strip()
+    return Path(override) if override else repo_root() / "config"
+
+
+def users_defaults_file() -> Path:
+    """The accounts the app ships with (``config/users.json``)."""
+    return config_dir() / "users.json"
+
+
 def _home() -> Path:
     profile = os.environ.get("USERPROFILE") if sys.platform == "win32" else None
     return Path(profile) if profile else Path.home()

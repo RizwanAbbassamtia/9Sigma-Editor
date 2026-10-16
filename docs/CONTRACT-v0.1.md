@@ -12,7 +12,13 @@ its M5.1 preview engine. The copy happens once; afterwards this repo is independ
    `%LOCALAPPDATA%\9SigmaEditor`; default projects folder `Videos\9SigmaEditor\projects`, exports
    `Videos\9SigmaEditor\exports`; server port 8766; GitHub repo `RizwanAbbassamtia/9Sigma-Editor`
    for the in-app update check; window title and shortcuts "9Sigma Editor"; icon placeholder.
-3. No sign-in. The app opens on the Edit room. Settings are per laptop. No shared folder.
+3. Sign-in with the team's accounts (the owner's request of 2026-10-16, replacing "no
+   sign-in"): ten preset accounts, `user1` to `user10`, kept with hashed passwords in
+   `config/users.json` and copied to `<app_data_dir>/users.json` on first start. The initial
+   passwords are handed to the owner in `config/local.user-passwords.txt` (never committed);
+   a person changes their own password in Settings, and `sge users set-password` resets one.
+   The app opens on the sign-in page, then the Edit room. The accounts only decide who may
+   use the app: settings and edits stay per laptop. No shared folder.
 4. Every kept feature works offline with no AI: the editor must be complete for a person who
    never signs in to anything. AI help is out of scope for v0.1.
 5. Plain English, laptop budget, tests, and the full checks before every commit (as in CLAUDE.md).
@@ -50,7 +56,8 @@ Delete to the Recycle Bin), `/edit/:id` = the editor (today's EditReview layout 
 live preview monitor, scene strip, transition per cut, popups and captions switches, music, render
 sizes, checks, Render and Export), `/renders` = every rendered file, `/settings` = Paths, Render,
 Captions, Health checks, About (version, update check). A 48 px rail with My edits, Renders,
-Settings; no top-bar user chip. Dark theme as the CashCow editor tokens.
+Settings, and at the bottom the signed-in person's name with Sign out; `/login` = the sign-in
+page (section 0.3). Dark theme as the CashCow editor tokens.
 
 ## 3. New edit from files (`api/projects.py`: `POST /api/edits`, `models/edit_input.py`)
 
@@ -125,6 +132,11 @@ update check reads `RizwanAbbassamtia/9Sigma-Editor` releases. `docs/INSTALL.md`
    through a new clip branch in the scene-clip renderer (muted unless "keep the clip's sound");
    the live preview shows the clip's poster frame with a note until the preview engine learns
    to play video.
+7. **Sign-in** (section 0.3): `auth/` holds the password hashing (PBKDF2-SHA256, 210,000
+   rounds, a random salt per password), the account file, the sessions (`sessions.json` in the
+   app data folder: 12 hours, or 30 days with "Keep me signed in") and the middleware that
+   answers 401 for every `/api/*` call except sign-in, the sign-in status and the system info.
+   Five wrong passwords in a row lock an account for 30 seconds.
 
 ## 8. Tests and proof
 

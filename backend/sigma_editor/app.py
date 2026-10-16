@@ -22,9 +22,12 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 
 from . import __version__
-from .api import doctor, edits, system
+from .api import auth, doctor, edits, system
 from .api import settings as settings_api
-from .config import Settings, load_settings
+from .auth.middleware import AuthMiddleware
+from .auth.sessions import SessionStore
+from .auth.users import UserStore
+from .config import Settings, load_settings, users_defaults_file
 from .origin_guard import SameOriginGuard
 from .storage.project_store import ProjectStore
 
@@ -83,9 +86,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.settings = settings
     app.state.store = ProjectStore(settings.projects_dir)
     app.state.jobs = None
+    app.state.users = UserStore(settings.app_data_dir, users_defaults_file())
+    app.state.sessions = SessionStore(settings.app_data_dir)
 
     # The guard sits inside CORS: preflights are answered by CORS, every other request that
-    # changes something must come from this server's own page or the dev server.
+    # changes something must come from this server's own page or the dev server. The sign-in
+    # check is innermost: after CORS and the guard.
+    app.add_middleware(AuthMiddleware)
     app.add_middleware(SameOriginGuard, allowed_origins=DEV_ORIGINS)
     app.add_middleware(
         CORSMiddleware,
@@ -99,6 +106,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.add_exception_handler(Exception, unexpected_error_response)
 
     app.include_router(system.router, prefix="/api")
+    app.include_router(auth.router)
     app.include_router(doctor.router, prefix="/api")
     app.include_router(settings_api.router, prefix="/api")
     app.include_router(edits.router)

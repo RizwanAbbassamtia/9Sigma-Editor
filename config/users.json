@@ -1,0 +1,85 @@
+{
+  "users": [
+    {
+      "username": "user1",
+      "display_name": "User 1",
+      "password_hash": "pbkdf2_sha256$210000$4XoD/1MD1IUhTcooYe9Cww==$XK7Hpnix8WuMq/dy0IucASttb8XKqvkUuaN4OFAP/ls=",
+      "enabled": true,
+      "must_change_password": false,
+      "updated_at": "2026-10-16T08:53:25.549275Z"
+    },
+    {
+      "username": "user2",
+      "display_name": "User 2",
+      "password_hash": "pbkdf2_sha256$210000$hihMZ4v8W4/qDw2gmGJ/Zw==$nw0NFXAV6Kt229FTFcCoWibA1L0lzs7MKhaeFVDRSiQ=",
+      "enabled": true,
+      "must_change_password": false,
+      "updated_at": "2026-10-16T08:53:25.549275Z"
+    },
+    {
+      "username": "user3",
+      "display_name": "User 3",
+      "password_hash": "pbkdf2_sha256$210000$e6pIkVzRhWMQB9WfmmMy2w==$dHR1S39yFryPDU3+RecT8xshpGtpDharC4yhR31eF7E=",
+      "enabled": true,
+      "must_change_password": false,
+      "updated_at": "2026-10-16T08:53:25.549275Z"
+    },
+    {
+      "username": "user4",
+      "display_name": "User 4",
+      "password_hash": "pbkdf2_sha256$210000$F4PCtXijIZR4I6eehDL57w==$tg04Hk6JYNFZsZX8CIJONhGQA0RIskhCqkD+MmUoIl8=",
+      "enabled": true,
+      "must_change_password": false,
+      "updated_at": "2026-10-16T08:53:25.549275Z"
+    },
+    {
+      "username": "user5",
+      "display_name": "User 5",
+      "password_hash": "pbkdf2_sha256$210000$VOzPzEhdhN7TSvohpCg8gw==$WRZTvM0hlhrxV76NmAMx38G+VKRSi4l1gH5dW6d+YAs=",
+      "enabled": true,
+      "must_change_password": false,
+      "updated_at": "2026-10-16T08:53:25.549275Z"
+    },
+    {
+      "username": "user6",
+      "display_name": "User 6",
+      "password_hash": "pbkdf2_sha256$210000$joKgIC//YzXTLqtAHicwHA==$npMuQf9DuEhOChKiAxQgKF0C9+0BYkT0xglNMkd0dY8=",
+      "enabled": true,
+      "must_change_password": false,
+      "updated_at": "2026-10-16T08:53:25.549275Z"
+    },
+    {
+      "username": "user7",
+      "display_name": "User 7",
+      "password_hash": "pbkdf2_sha256$210000$CAZgcJUFVopPRF2fYfq+UA==$aUgA2DXibK8z/qQ8OfMgQgEH3D9uEsUTwrgHuzKkmMQ=",
+      "enabled": true,
+      "must_change_password": false,
+      "updated_at": "2026-10-16T08:53:25.549275Z"
+    },
+    {
+      "username": "user8",
+      "display_name": "User 8",
+      "password_hash": "pbkdf2_sha256$210000$7DLpG+7ceSBp9kxWrCYiQQ==$3hKx08aGyR8LEMGyX3lgj0vE6MZmKX8RrylesxBr8ac=",
+      "enabled": true,
+      "must_change_password": false,
+      "updated_at": "2026-10-16T08:53:25.549275Z"
+    },
+    {
+      "username": "user9",
+      "display_name": "User 9",
+      "password_hash": "pbkdf2_sha256$210000$7ke5OFA7YZRekhg9p7y8zg==$8gdUEMAPNX/+W6OVMcq/ldilfdZnLVikKrG8TRMtKFk=",
+      "enabled": true,
+      "must_change_password": false,
+      "updated_at": "2026-10-16T08:53:25.549275Z"
+    },
+    {
+      "username": "user10",
+      "display_name": "User 10",
+      "password_hash": "pbkdf2_sha256$210000$Xfk4uhYRQK7m9nIinkblFQ==$bWqObaDKgGiLhUZMEOZN2X7HxwcI1ToxFp1Cso+OR9g=",
+      "enabled": true,
+      "must_change_password": false,
+      "updated_at": "2026-10-16T08:53:25.549275Z"
+    }
+  ],
+  "schema_version": 1
+}
