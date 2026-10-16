@@ -6,6 +6,7 @@ import { DoctorPanel } from "../components/settings/DoctorPanel";
 import { PasswordCard } from "../components/settings/PasswordCard";
 import { PathsCard } from "../components/settings/PathsCard";
 import { RenderCard } from "../components/settings/RenderCard";
+import { VoiceCard } from "../components/settings/VoiceCard";
 
 /** `/settings`: folders, render defaults, your account, the health checks and About. */
 export function SettingsPage() {
@@ -25,6 +26,7 @@ export function SettingsPage() {
     <div className="flex flex-col gap-6">
       <PathsCard />
       <RenderCard />
+      <VoiceCard />
       <PasswordCard />
       <DoctorPanel />
       <AboutCard />

@@ -12,15 +12,17 @@
  * and reports its state with the same events the React wrapper listens to (`time`, `play`,
  * `pause`, `ended`, `status`, `error`). Framework-free: no React in here.
  */
-import { AudioEngine } from "./audio";
+import { AudioEngine, dbToGain } from "./audio";
 import { Canvas2DCompositor } from "./canvas2d/compositor";
 import { simplifiedIn2D } from "./canvas2d/transitions";
 import { AutoQuality, FramePacer, PlaybackClock, frameNumber, requestFrame } from "./clock";
-import type { Compositor, DrawInput, Overlay, SceneSource, SlateImage } from "./compositor";
+import type { Compositor, DrawInput, LayerDraw, Overlay, SceneSource, SlateImage } from "./compositor";
 import { buildDescription, cueAt, defaultFileUrl, frameAt, scenePositionAt, setImageSize, type DescriptionOptions } from "./description";
 import { GpuCompositor } from "./gpu/compositor";
 import { ParallaxStore, type ParallaxCounts } from "./parallaxJobs";
 import { PictureStore, decodeHeight, depthMapPath, fetchDepthMap } from "./pictures";
+import { SoundPlayer } from "./sounds";
+import { VideoStore } from "./videos";
 import {
   FontLibrary,
   PopupLibrary,
@@ -51,6 +53,7 @@ import type {
   Quality,
   RenderDescription,
   SceneDesc,
+  SceneRef,
 } from "./types";
 
 export type { PreviewBundle, PreviewHandle, PreviewOptions, PreviewEvents, Quality, LoopRange } from "./types";
@@ -150,6 +153,9 @@ class PreviewEngine implements PreviewHandle {
   private popupFont: LoadedFont | null = null;
   private readonly popups: PopupLibrary;
   private readonly audio: AudioEngine | null;
+  /** v0.2: the video elements of clip scenes and clip layers, and the sound clips */
+  private readonly videos: VideoStore;
+  private readonly sounds: SoundPlayer;
   private readonly clock: PlaybackClock;
   private readonly pacer = new FramePacer();
   private readonly auto = new AutoQuality();
@@ -232,6 +238,9 @@ class PreviewEngine implements PreviewHandle {
     this.popups = new PopupLibrary(options.popupPreview ?? null, this.fetchFn, () => this.requestDraw());
     this.audio = options.audio === false || typeof window === "undefined" ? null : new AudioEngine({ fetch: this.fetchFn, onError: (message) => this.emit("error", message) });
     this.audio?.setDescription(this.desc);
+    this.videos = new VideoStore(() => this.requestDraw(true));
+    this.sounds = new SoundPlayer();
+    if (options.audio !== false) this.syncSounds();
     this.clock = new PlaybackClock(this.audio);
     this.ready = new Promise<void>((resolve) => {
       this.resolveReady = resolve;
@@ -545,6 +554,7 @@ class PreviewEngine implements PreviewHandle {
     for (let step = 1; step <= 3; step++) add(position + step, ready, step);
     add(position - 1, ready, 2);
     if (!ready) this.pictures.cancel(keep);
+    this.prefetchExtras(state.kind === "empty" ? 0 : state.n / this.desc.fps, height, keep);
     const removed = this.pictures.trim(keep);
     if (removed.length) this.compositor?.release(removed);
     this.parallax.trim(keepPositions);
@@ -558,7 +568,68 @@ class PreviewEngine implements PreviewHandle {
     const picture = state && state !== "missing" ? state : null;
     // a parallax scene is its Ken Burns move until its plan (and plates) are ready
     const plan = scene.style === "parallax" ? this.parallax.get(this.desc.scenes.indexOf(scene)) : null;
-    return { picture, missing: state === "missing" || !scene.image, parallax: plan };
+    const video = scene.clip ? this.videos.ready(scene.clip.url) : null;
+    return { picture, missing: !video && (state === "missing" || !scene.image), parallax: video ? null : plan, video, frame: scene.frame };
+  }
+
+  // v0.2: clips, layers and sounds ----------------------------------------------------------------
+
+  private syncSounds(): void {
+    this.sounds.master = dbToGain(this.desc.audio.gainDb);
+    this.sounds.setClips(this.desc.sounds);
+  }
+
+  /** Brings a scene clip's video to the frame `ref` shows (playing or seeking). */
+  private syncSceneVideo(ref: SceneRef, playing: boolean): void {
+    const clip = ref.scene.clip;
+    if (!clip) return;
+    const fileTime = clip.inS + ((ref.clipFrame - ref.scene.leadIn) / this.desc.fps) * clip.speed;
+    const volume = clip.keepSound && this.options.audio !== false ? dbToGain(clip.gainDb) * dbToGain(this.desc.audio.gainDb) : null;
+    this.videos.sync(clip.url, fileTime, playing, clip.speed, volume);
+  }
+
+  /** The layer clips on screen at `t`, with their pictures or videos (bottom layer first). */
+  private layerDraws(t: number, playing: boolean): LayerDraw[] {
+    const out: LayerDraw[] = [];
+    for (const clip of this.desc.layers) {
+      if (t < clip.startS || t >= clip.endS) continue;
+      if (clip.kind === "clip") {
+        const fileTime = clip.inS + (t - clip.startS) * clip.speed;
+        const volume = clip.keepSound && this.options.audio !== false ? dbToGain(clip.gainDb) * dbToGain(this.desc.audio.gainDb) : null;
+        this.videos.sync(clip.url, fileTime, playing, clip.speed, volume);
+        const video = this.videos.ready(clip.url);
+        if (video) out.push({ key: clip.key, image: video, version: 0, imageW: clip.size?.[0] ?? video.videoWidth, imageH: clip.size?.[1] ?? video.videoHeight, frame: clip.frame, adjust: clip.adjust });
+        continue;
+      }
+      const state = this.pictures.get(clip.source);
+      if (!state || state === "missing") continue;
+      out.push({ key: clip.key, image: state.bitmap, version: state.version, imageW: state.imageWidth, imageH: state.imageHeight, frame: clip.frame, adjust: clip.adjust });
+    }
+    return out;
+  }
+
+  /** Asks for the pictures and videos of the layer clips and clip scenes around `t`. */
+  private prefetchExtras(t: number, height: number, keep: Set<string>): void {
+    const videosToKeep = new Set<string>();
+    for (const clip of this.desc.layers) {
+      if (t < clip.startS - 3 || t > clip.endS + 1) continue;
+      if (clip.kind === "clip") {
+        videosToKeep.add(clip.url);
+        this.videos.want(clip.url);
+        continue;
+      }
+      keep.add(clip.source);
+      this.pictures.want(clip.source, decodeHeight(clip.size, height, null), clip.size);
+    }
+    const position = scenePositionAt(this.desc, this.frameFor(t));
+    for (let step = -1; step <= 3; step += 1) {
+      const scene = this.desc.scenes[position + step];
+      if (scene?.clip) {
+        videosToKeep.add(scene.clip.url);
+        this.videos.want(scene.clip.url);
+      }
+    }
+    this.videos.trim(videosToKeep);
   }
 
   /** The slate of scene `sceneNumber` in `slot`: one canvas per slot, drawn again when its scene changes. */
@@ -659,6 +730,11 @@ class PreviewEngine implements PreviewHandle {
     const [width, height] = this.size();
     const state = frameAt(this.desc, n);
     this.prefetch(state, height);
+    const running = this.playing && !this.holding && !skim;
+    if (state.kind !== "empty") {
+      this.syncSceneVideo(state.a, running);
+      if (state.kind === "cut") this.syncSceneVideo(state.b, running);
+    }
     const input: DrawInput = {
       state,
       width,
@@ -666,6 +742,8 @@ class PreviewEngine implements PreviewHandle {
       source: (scene) => this.sceneSource(scene),
       slate: (number, slot) => this.slate(number, slot),
       overlays: state.kind === "empty" ? [] : this.overlays(state.n, width, height),
+      layers: state.kind === "empty" ? [] : this.layerDraws(state.n / this.desc.fps, running),
+      adjust: state.kind === "empty" ? null : state.a.scene.adjust,
     };
     try {
       compositor.draw(input);
@@ -769,6 +847,7 @@ class PreviewEngine implements PreviewHandle {
       return;
     }
     this.playhead = t;
+    this.sounds.sync(t, true);
     const n = this.pacer.next(t, this.desc.fps);
     if (n !== null && this.skimTime === null) {
       const before = performance.now();
@@ -842,6 +921,8 @@ class PreviewEngine implements PreviewHandle {
     this.holding = false;
     this.clock.stop();
     this.audio?.pause(this.playhead);
+    this.sounds.pauseAll();
+    this.videos.pauseAll();
     this.cancelFrame?.();
     this.cancelFrame = null;
   }
@@ -975,6 +1056,7 @@ class PreviewEngine implements PreviewHandle {
     else this.parallax.rebase();
     this.caption = null;
     this.audio?.setDescription(this.desc);
+    if (this.options.audio !== false) this.syncSounds();
     this.scheduleWarmUp();
     this.updateStatus({ mockMedia: Boolean(this.options.mockMedia || this.desc.mock), simplified: this.isSimplified() });
     if (JSON.stringify(bundle.media?.fonts ?? []) !== previousFonts || this.desc.captionStyle.font !== previousFont) this.loadFonts();
@@ -1042,6 +1124,8 @@ class PreviewEngine implements PreviewHandle {
     this.primeTimer = null;
     this.observer?.disconnect();
     this.audio?.destroy();
+    this.sounds.destroy();
+    this.videos.destroy();
     this.popups.destroy();
     this.parallax.destroy();
     this.pictures.destroy();

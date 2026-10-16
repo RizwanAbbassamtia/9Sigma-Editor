@@ -34,6 +34,9 @@ function scene(index: number): SceneDesc {
     body: 150,
     path: MotionPath.forPreset("zoom_in", [0, 0, 1, 1], [0.1, 0.1, 0.8, 0.8], { seed: index, bounds }),
     style: "parallax",
+    clip: null,
+    frame: null,
+    adjust: null,
     strength: 0.035,
   };
 }

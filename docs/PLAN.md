@@ -53,10 +53,16 @@ states, undo and history. v0.1 below is the foundation (the copied engine runnin
   live preview, transitions picker, popups and captions on or off, music with ducking, render
   sizes with quality Standard / High / Best and the YouTube 1080p and 4K upload presets, export
   folder with checksum. Installer and in-app update from the new repo.
-- **v0.2:** the Timeline tab from `docs/design/EDITOR-DESIGN.md` section 4: four zones, lanes
-  (markers, popups, captions, scenes, voice, music), trim handles, snapping, ripple moves,
-  inspector with motion start and end frames, undo and history, keyboard shortcuts, render menu
-  with "out of date" tracking, range render and Compare.
+- **v0.2 (built 2026-10-16, the same day as v0.1):** the Edit room of the design (lanes, trim
+  handles, snapping, the inspector, undo, shortcuts, the Render menu with "out of date") landed
+  with v0.1 the same evening, so v0.2 became the owner's next request: **the CapCut-style
+  project** (`docs/CONTRACT-v0.2.md`): Create project opens an empty Edit room; a media library
+  (import pictures, clips, sound and caption files; add to the video, as a layer, as the
+  narration, the music or a sound; drag onto the lanes); layers of pictures and clips over the
+  scenes and sound tracks under the voice; frame (position, scale, rotation, opacity, crop,
+  flips) and colour (brightness, contrast, saturation) adjustments; speed for clips and sounds;
+  picture time (a ripple without narration); the AI voice from text (ElevenLabs, the person's
+  own key). Still open from the design: Compare with render, lane sizes, resizable panels.
 - **v0.3:** hand-off to CapCut, DaVinci Resolve and Kdenlive, caption styles and presets, sound
   effects lane, multi-track music. (No storyboard tab: the owner decided on 2026-10-14 that the
   storyboard stays in CashCow Studio only; 9Sigma Editor is a pure editor.)
@@ -66,7 +72,7 @@ states, undo and history. v0.1 below is the foundation (the copied engine runnin
 
 ## 4. Rules
 
-Contract first, code second (`docs/CONTRACT-v0.1.md` before any code of v0.1). Plain-English UI.
+Contract first, code second (`docs/CONTRACT-v0.1.md` before any code of v0.1, `docs/CONTRACT-v0.2.md` for v0.2). Plain-English UI.
 One render at a time; the laptop budget of CashCow's design (30 fps preview at 960 x 540, 1080p
 render near real time on a 4-core i7). Pydantic models are the source of truth, mirrored in
 `frontend/src/types/`. Tests and the full checks (ruff, pytest, typecheck, build) before every

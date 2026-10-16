@@ -1,17 +1,22 @@
-import { Bookmark, Captions, Flag, Image as ImageIcon, Link2, Magnet, Merge, MessageSquare, Mic, Minus, MousePointer2, Music, Plus, Scissors, Trash2, Type, Waves } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
+import { Bookmark, Captions, Eye, EyeOff, Flag, Image as ImageIcon, Layers, Link2, Lock, Magnet, Merge, MessageSquare, Mic, Minus, MousePointer2, Music, Plus, Scissors, Trash2, Type, Unlock, Video, Volume2, VolumeX, Waves } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent as ReactDragEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 
 import { projectMediaUrl, sceneImageFile } from "../../api/edit";
 import { useStoreTime } from "../../components/preview/timeStore";
 import { cn } from "../../lib/cn";
+import { MEDIA_DRAG_TYPE, readMediaDrag, type MediaDrag } from "../../types/media";
 import type { BundleSentence } from "../../types/preview";
-import type { PixelRect, Timeline as TimelineDoc, TimelineScene } from "../../types/timeline";
+import type { AudioClip, AudioTrack, Layer, LayerClip, PixelRect, Timeline as TimelineDoc, TimelineScene } from "../../types/timeline";
 import { useEditor } from "./context";
 import {
   SNAP_PX,
   type Pause,
   type Selection,
   type SnapTarget,
+  addAudioClip,
+  addAudioTrack,
+  addLayer,
+  addLayerClip,
   addMarker,
   addPopup,
   clampZoom,
@@ -19,21 +24,34 @@ import {
   majorStep,
   mergeScene,
   minorStep,
+  moveAudioClip,
   moveCut,
+  moveLayerClip,
   pausesOf,
+  removeAudioClip,
+  removeAudioTrack,
   removeCue,
+  removeLayer,
+  removeLayerClip,
   removeMarker,
   removePopup,
   rulerLabel,
   sameSelection,
+  sceneIndexAt,
   sceneTitle,
   seconds,
   snapTargets,
   snapTo,
+  splitAudioClip,
+  splitLayerClip,
   splitScene,
   timecode,
   transitionEntry,
+  trimAudioClip,
+  trimLayerClip,
+  updateAudioTrack,
   updateCue,
+  updateLayer,
   updateMarker,
   updatePopup,
 } from "./document";
@@ -42,7 +60,7 @@ const HEADER_W = 120;
 const OVERVIEW_H = 28;
 const RULER_H = 24;
 const GAP = 4;
-const LANES = { markers: 16, popups: 24, captions: 24, scenes: 64, voice: 52, music: 36 } as const;
+const LANES = { markers: 16, popups: 24, captions: 24, layer: 36, scenes: 64, voice: 52, sound: 32, music: 36 } as const;
 
 type DragMode = "sentence" | "word" | "free";
 
@@ -51,7 +69,7 @@ function modeOf(event: { shiftKey: boolean; altKey: boolean }): DragMode {
 }
 
 interface Drag {
-  kind: "cut" | "popup" | "popup-edge" | "caption-edge" | "marker" | "music" | "scrub" | "overview" | "overview-edge";
+  kind: "cut" | "popup" | "popup-edge" | "caption-edge" | "marker" | "music" | "scrub" | "overview" | "overview-edge" | "layerclip" | "layerclip-edge" | "audioclip" | "audioclip-edge";
   index?: number;
   id?: string;
   edge?: "start" | "end";
@@ -147,12 +165,21 @@ function Waveform({ peaks, gainCurve, startS, endS, width, height, colour, fill,
   return <canvas ref={ref} style={{ width, height }} className="absolute inset-0" aria-hidden />;
 }
 
-function LaneHeader({ icon, label, height }: { icon: ReactNode; label: string; height: number }) {
+function LaneHeader({ icon, label, height, children, onClick, selected }: { icon: ReactNode; label: string; height: number; children?: ReactNode; onClick?: () => void; selected?: boolean }) {
   return (
-    <div className="flex items-center gap-1.5 border-r border-ed-line bg-ed-panel-2 px-2 text-[11px] font-medium text-ink-muted" style={{ height }}>
+    <div className={cn("flex items-center gap-1.5 border-r border-ed-line bg-ed-panel-2 px-2 text-[11px] font-medium text-ink-muted", onClick && "cursor-pointer hover:text-ink", selected && "text-accent-text")} style={{ height }} onClick={onClick}>
       <span className="text-ink-faint [&_svg]:size-3.5">{icon}</span>
-      {label}
+      <span className="min-w-0 flex-1 truncate">{label}</span>
+      {children}
     </div>
+  );
+}
+
+function HeaderToggle({ title, pressed, onClick, children }: { title: string; pressed?: boolean; onClick: () => void; children: ReactNode }) {
+  return (
+    <button type="button" title={title} aria-label={title} aria-pressed={pressed} onClick={(event) => { event.stopPropagation(); onClick(); }} className={cn("ws-focus grid size-5 place-items-center rounded text-ink-faint hover:bg-ed-raised hover:text-ink [&_svg]:size-3", pressed && "text-ink")}>
+      {children}
+    </button>
   );
 }
 
@@ -164,7 +191,11 @@ function ToolButton({ title, pressed, onClick, disabled, children }: { title: st
   );
 }
 
-/** The timeline (docs/design/EDITOR-DESIGN.md section 4.6). */
+function hasMediaDrag(event: ReactDragEvent): boolean {
+  return Array.from(event.dataTransfer.types).includes(MEDIA_DRAG_TYPE);
+}
+
+/** The timeline (docs/design/EDITOR-DESIGN.md section 4.6, docs/CONTRACT-v0.2.md section 8). */
 export function Timeline() {
   const { state, actions } = useEditor();
   const laneRef = useRef<HTMLDivElement | null>(null);
@@ -176,10 +207,12 @@ export function Timeline() {
   const [snapLine, setSnapLine] = useState<{ t: number; label: string } | null>(null);
   const [hint, setHint] = useState<string | null>(null);
   const [hover, setHover] = useState<number | null>(null);
+  const [dropLane, setDropLane] = useState<string | null>(null);
   const fittedFor = useRef<number>(0);
   const time = useStoreTime(state.timeStore, 1 / state.fps);
   const timeline = preview ?? state.timeline;
   const duration = Math.max(state.duration, timeline.duration_s, 1);
+  const noScenes = timeline.scenes.length === 0;
 
   // the lane area's width
   useEffect(() => {
@@ -371,6 +404,21 @@ export function Timeline() {
         const startAt = Math.max(0, Math.round((current.base.music.start_s - delta) * 10) / 10);
         setPreviewDoc({ ...current.base, music: { ...current.base.music, start_s: startAt } });
         setHint(`Track starts ${seconds(startAt)} in`);
+        return;
+      }
+      if ((current.kind === "layerclip" || current.kind === "audioclip") && current.id) {
+        const found = current.kind === "layerclip" ? current.base.layers.flatMap((layer) => layer.clips).find((item) => item.id === current.id) : current.base.audio_tracks.flatMap((track) => track.clips).find((item) => item.id === current.id);
+        if (!found) return;
+        const delta = rawT - current.startT;
+        const start = snapAt(found.start_s + delta, snapping ? mode : "free", snapping);
+        const moved = current.kind === "layerclip" ? moveLayerClip(current.base, found.id, start) : moveAudioClip(current.base, found.id, start);
+        setPreviewDoc(moved);
+        setHint(`Starts at ${clock(Math.max(0, start))}`);
+        return;
+      }
+      if ((current.kind === "layerclip-edge" || current.kind === "audioclip-edge") && current.id && current.edge) {
+        const t = snapAt(rawT, snapping ? mode : "free", snapping);
+        setPreviewDoc(current.kind === "layerclip-edge" ? trimLayerClip(current.base, current.id, current.edge, t) : trimAudioClip(current.base, current.id, current.edge, t));
       }
     };
 
@@ -382,13 +430,102 @@ export function Timeline() {
       setHint(null);
       setPreviewDoc(null);
       if (final && JSON.stringify(final) !== JSON.stringify(current.base)) {
-        const label = current.kind === "cut" ? `move cut ${(current.index ?? 0) + 1} to ${(current.index ?? 0) + 2}` : current.kind === "music" ? "move the music" : current.kind === "marker" ? "move a marker" : current.kind.startsWith("popup") ? "re-time a popup" : "re-time a caption";
+        const label =
+          current.kind === "cut" ? `move cut ${(current.index ?? 0) + 1} to ${(current.index ?? 0) + 2}`
+          : current.kind === "music" ? "move the music"
+          : current.kind === "marker" ? "move a marker"
+          : current.kind.startsWith("popup") ? "re-time a popup"
+          : current.kind === "layerclip" ? "move a layer clip"
+          : current.kind === "layerclip-edge" ? "trim a layer clip"
+          : current.kind === "audioclip" ? "move a sound clip"
+          : current.kind === "audioclip-edge" ? "trim a sound clip"
+          : "re-time a caption";
         liveRef.current.actions.edit(label, () => final);
       }
     };
 
     window.addEventListener("pointermove", onMove);
     window.addEventListener("pointerup", onUp, { once: true });
+  };
+
+  // ---- drops from the library ------------------------------------------------------------------------
+
+  const dropInfo = (drag: MediaDrag) => ({ path: drag.path, kind: drag.kind, name: drag.name, duration_s: drag.duration_s });
+  const dropAt = (event: ReactDragEvent): number => {
+    const rect = laneRef.current?.getBoundingClientRect();
+    return Math.max(0, tOf(event.clientX - (rect?.left ?? 0)));
+  };
+  const dropProps = (laneKey: string, onDrop: (drag: MediaDrag, t: number) => void) => ({
+    onDragOver: (event: ReactDragEvent) => {
+      if (!hasMediaDrag(event) || state.locked) return;
+      event.preventDefault();
+      event.dataTransfer.dropEffect = "copy";
+      if (dropLane !== laneKey) setDropLane(laneKey);
+    },
+    onDragLeave: () => setDropLane((current) => (current === laneKey ? null : current)),
+    onDrop: (event: ReactDragEvent) => {
+      const drag = readMediaDrag(event.dataTransfer);
+      setDropLane(null);
+      if (!drag) return;
+      event.preventDefault();
+      event.stopPropagation();
+      onDrop(drag, dropAt(event));
+    },
+  });
+  const dropOnScenes = (drag: MediaDrag, t: number) => {
+    if (drag.kind !== "picture" && drag.kind !== "clip") {
+      actions.notify("info", "Sound goes on the Voice lane (the narration), the Music lane, or a sound lane.");
+      return;
+    }
+    const under = sceneIndexAt(state.timeline, t);
+    const after = under >= 0 && t < state.timeline.scenes[under]!.end_s ? under : undefined;
+    void actions.addScene(drag.path, after, drag.kind === "clip");
+  };
+  const dropOnLayer = (layer: Layer) => (drag: MediaDrag, t: number) => {
+    if (drag.kind !== "picture" && drag.kind !== "clip") {
+      actions.notify("info", "Only pictures and clips go on a layer.");
+      return;
+    }
+    let note: string | null = null;
+    let id = "";
+    const done = actions.edit(`add ${drag.name} to ${layer.name}`, (doc) => {
+      const result = addLayerClip(doc, layer.id, dropInfo(drag), t);
+      note = result.note;
+      id = result.id;
+      return result.timeline;
+    });
+    if (note) actions.notify("info", note);
+    else if (done && id) actions.select({ kind: "layerclip", id });
+  };
+  const dropOnTrack = (track: AudioTrack) => (drag: MediaDrag, t: number) => {
+    if (drag.kind !== "audio") {
+      actions.notify("info", "Only sound files go on a sound track.");
+      return;
+    }
+    let note: string | null = null;
+    let id = "";
+    const done = actions.edit(`add ${drag.name} to ${track.name}`, (doc) => {
+      const result = addAudioClip(doc, track.id, dropInfo(drag), t);
+      note = result.note;
+      id = result.id;
+      return result.timeline;
+    });
+    if (note) actions.notify("info", note);
+    else if (done && id) actions.select({ kind: "audioclip", id });
+  };
+  const dropOnVoice = (drag: MediaDrag) => {
+    if (drag.kind !== "audio") {
+      actions.notify("info", "Drop a sound file here to make it the narration.");
+      return;
+    }
+    void actions.setNarration({ media: drag.path });
+  };
+  const dropOnMusic = (drag: MediaDrag) => {
+    if (drag.kind !== "audio") {
+      actions.notify("info", "Drop a sound file here to make it the music.");
+      return;
+    }
+    void actions.applyChoices({ music_path: drag.path });
   };
 
   // ---- derived ----------------------------------------------------------------------------------
@@ -411,7 +548,11 @@ export function Timeline() {
   const wordTicks = pps >= 30 && !words;
   const overviewPps = width / duration;
   const laneTop = OVERVIEW_H + RULER_H;
-  const lanesHeight = Object.values(LANES).reduce((sum, h) => sum + h + GAP, 0);
+  const layersTopFirst = [...timeline.layers].reverse();
+  const lanesHeight =
+    [LANES.markers, LANES.popups, LANES.captions, LANES.scenes, LANES.voice, LANES.music].reduce((sum, h) => sum + h + GAP, 0) +
+    layersTopFirst.length * (LANES.layer + GAP) +
+    timeline.audio_tracks.length * (LANES.sound + GAP);
   const playheadX = xOf(time);
 
   const onLaneClick = (t: number) => actions.seek(Math.max(0, Math.min(duration, t)));
@@ -427,6 +568,8 @@ export function Timeline() {
 
   const splitAtPlayhead = () => {
     const t = state.timeStore.get();
+    if (selection.kind === "layerclip") return run("split a layer clip", splitLayerClip(state.timeline, selection.id, t));
+    if (selection.kind === "audioclip") return run("split a sound clip", splitAudioClip(state.timeline, selection.id, t));
     const index = selection.kind === "scene" ? selection.index : timeline.scenes.findIndex((scene) => t >= scene.start_s && t < scene.end_s);
     if (index < 0) return;
     run(`split scene ${index + 1}`, splitScene(state.timeline, index, t, state.sentences));
@@ -436,6 +579,10 @@ export function Timeline() {
     else if (selection.kind === "popup") actions.edit("remove a popup", (doc) => removePopup(doc, selection.id));
     else if (selection.kind === "marker") actions.edit("remove a marker", (doc) => removeMarker(doc, selection.id));
     else if (selection.kind === "caption") actions.edit("remove a caption", (doc) => removeCue(doc, selection.id));
+    else if (selection.kind === "layerclip") actions.edit("remove a layer clip", (doc) => removeLayerClip(doc, selection.id));
+    else if (selection.kind === "audioclip") actions.edit("remove a sound clip", (doc) => removeAudioClip(doc, selection.id));
+    else if (selection.kind === "layer") actions.edit("remove a layer", (doc) => removeLayer(doc, selection.id));
+    else if (selection.kind === "track") actions.edit("remove a sound track", (doc) => removeAudioTrack(doc, selection.id));
     if (selection.kind !== "scene") actions.select({ kind: "none" });
   };
 
@@ -445,12 +592,25 @@ export function Timeline() {
       if (detail.command === "split") splitAtPlayhead();
       if (detail.command === "delete") deleteSelected(false);
       if (detail.command === "delete-forward") deleteSelected(true);
+      if (detail.command === "marker") {
+        let id = "";
+        if (actions.edit("add a marker", (doc) => { const result = addMarker(doc, state.timeStore.get()); id = result.id; return result.timeline; }) && id) actions.select({ kind: "marker", id });
+      }
     };
     window.addEventListener("sge:timeline-command", onCommand);
     return () => window.removeEventListener("sge:timeline-command", onCommand);
   });
 
   const lockedUi = state.locked;
+  const deletable = ["popup", "marker", "caption", "layerclip", "audioclip", "layer", "track"].includes(selection.kind);
+  const lanePointer = (event: ReactPointerEvent) => {
+    if (event.target === event.currentTarget) {
+      const rect = laneRef.current?.getBoundingClientRect();
+      onLaneClick(tOf(event.clientX - (rect?.left ?? 0)));
+    }
+  };
+
+  const thumbOf = (source: string): string | null => state.sources.get(source)?.thumb_url ?? state.media?.items.find((item) => item.path === source)?.thumb_url ?? null;
 
   return (
     <section className="flex min-h-0 flex-1 flex-col bg-ed-panel" aria-label="Timeline">
@@ -460,21 +620,28 @@ export function Timeline() {
           <MousePointer2 />
         </ToolButton>
         <span className="mx-1 h-5 w-px bg-ed-line" aria-hidden />
-        <ToolButton title="Split the scene at the playhead (S)" onClick={splitAtPlayhead} disabled={lockedUi}>
+        <ToolButton title="Split the selected scene or clip at the playhead (S)" onClick={splitAtPlayhead} disabled={lockedUi || noScenes}>
           <Scissors />
         </ToolButton>
         <ToolButton title="Merge the selected scene into the previous one (Delete)" onClick={() => deleteSelected(false)} disabled={lockedUi || selection.kind !== "scene"}>
           <Merge />
         </ToolButton>
-        <ToolButton title="Delete the selected popup, marker or caption (Delete)" onClick={() => deleteSelected(false)} disabled={lockedUi || !["popup", "marker", "caption"].includes(selection.kind)}>
+        <ToolButton title="Delete the selected popup, marker, caption, clip, layer or sound track (Delete)" onClick={() => deleteSelected(false)} disabled={lockedUi || !deletable}>
           <Trash2 />
         </ToolButton>
         <span className="mx-1 h-5 w-px bg-ed-line" aria-hidden />
-        <ToolButton title="Add a marker at the playhead (M)" disabled={lockedUi} onClick={() => { let id = ""; if (actions.edit("add a marker", (doc) => { const result = addMarker(doc, state.timeStore.get()); id = result.id; return result.timeline; }) && id) actions.select({ kind: "marker", id }); }}>
+        <ToolButton title="Add a marker at the playhead (M)" disabled={lockedUi || noScenes} onClick={() => { let id = ""; if (actions.edit("add a marker", (doc) => { const result = addMarker(doc, state.timeStore.get()); id = result.id; return result.timeline; }) && id) actions.select({ kind: "marker", id }); }}>
           <Flag />
         </ToolButton>
-        <ToolButton title="Add a popup at the playhead (T)" disabled={lockedUi} onClick={() => { let id = ""; if (actions.edit("add a popup", (doc) => { const result = addPopup(doc, state.timeStore.get(), "New popup", state.sentences); id = result.id; return result.timeline; }) && id) actions.select({ kind: "popup", id }); }}>
+        <ToolButton title="Add a popup at the playhead (T)" disabled={lockedUi || noScenes} onClick={() => { let id = ""; if (actions.edit("add a popup", (doc) => { const result = addPopup(doc, state.timeStore.get(), "New popup", state.sentences); id = result.id; return result.timeline; }) && id) actions.select({ kind: "popup", id }); }}>
           <Type />
+        </ToolButton>
+        <span className="mx-1 h-5 w-px bg-ed-line" aria-hidden />
+        <ToolButton title="Add a layer (pictures and clips over the scenes)" disabled={lockedUi} onClick={() => { let id = ""; if (actions.edit("add a layer", (doc) => { const result = addLayer(doc); id = result.id; return result.timeline; }) && id) actions.select({ kind: "layer", id }); }}>
+          <Layers />
+        </ToolButton>
+        <ToolButton title="Add a sound track (under the narration)" disabled={lockedUi} onClick={() => { let id = ""; if (actions.edit("add a sound track", (doc) => { const result = addAudioTrack(doc); id = result.id; return result.timeline; }) && id) actions.select({ kind: "track", id }); }}>
+          <Volume2 />
         </ToolButton>
         <div className="ml-auto flex items-center gap-1">
           <ToolButton title="Snapping (N)" pressed={state.snapping} onClick={actions.toggleSnapping}>
@@ -510,8 +677,25 @@ export function Timeline() {
             <LaneHeader icon={<Bookmark />} label="Markers" height={LANES.markers} />
             <LaneHeader icon={<MessageSquare />} label="Popups" height={LANES.popups} />
             <LaneHeader icon={<Captions />} label="Captions" height={LANES.captions} />
+            {layersTopFirst.map((layer) => (
+              <LaneHeader key={layer.id} icon={<Layers />} label={layer.name} height={LANES.layer} onClick={() => actions.select({ kind: "layer", id: layer.id })} selected={isSelected({ kind: "layer", id: layer.id })}>
+                <HeaderToggle title={layer.visible ? "Hide this layer" : "Show this layer"} pressed={layer.visible} onClick={() => actions.edit(layer.visible ? `hide ${layer.name}` : `show ${layer.name}`, (doc) => updateLayer(doc, layer.id, { visible: !layer.visible }))}>
+                  {layer.visible ? <Eye /> : <EyeOff />}
+                </HeaderToggle>
+                <HeaderToggle title={layer.locked ? "Unlock this layer" : "Lock this layer"} pressed={layer.locked} onClick={() => actions.edit(layer.locked ? `unlock ${layer.name}` : `lock ${layer.name}`, (doc) => updateLayer(doc, layer.id, { locked: !layer.locked }))}>
+                  {layer.locked ? <Lock /> : <Unlock />}
+                </HeaderToggle>
+              </LaneHeader>
+            ))}
             <LaneHeader icon={<ImageIcon />} label="Scenes" height={LANES.scenes} />
             <LaneHeader icon={<Mic />} label="Voice" height={LANES.voice} />
+            {timeline.audio_tracks.map((track) => (
+              <LaneHeader key={track.id} icon={<Volume2 />} label={track.name} height={LANES.sound} onClick={() => actions.select({ kind: "track", id: track.id })} selected={isSelected({ kind: "track", id: track.id })}>
+                <HeaderToggle title={track.muted ? "Unmute this track" : "Mute this track"} pressed={!track.muted} onClick={() => actions.edit(track.muted ? `unmute ${track.name}` : `mute ${track.name}`, (doc) => updateAudioTrack(doc, track.id, { muted: !track.muted }))}>
+                  {track.muted ? <VolumeX /> : <Volume2 />}
+                </HeaderToggle>
+              </LaneHeader>
+            ))}
             <LaneHeader icon={<Music />} label="Music" height={LANES.music} />
           </div>
         </div>
@@ -555,9 +739,22 @@ export function Timeline() {
           </div>
 
           {/* lanes */}
-          <div className="relative" style={{ height: lanesHeight, paddingTop: GAP }} onPointerDown={(event) => { if (event.target === event.currentTarget) { const rect = laneRef.current?.getBoundingClientRect(); onLaneClick(tOf(event.clientX - (rect?.left ?? 0))); actions.select({ kind: "none" }); } }}>
+          <div
+            className={cn("relative", dropLane === "lanes" && "bg-accent/10")}
+            style={{ height: lanesHeight, paddingTop: GAP }}
+            onPointerDown={(event) => { if (event.target === event.currentTarget) { const rect = laneRef.current?.getBoundingClientRect(); onLaneClick(tOf(event.clientX - (rect?.left ?? 0))); actions.select({ kind: "none" }); } }}
+            {...dropProps("lanes", (drag) => {
+              if (drag.kind === "picture" || drag.kind === "clip") void actions.addScene(drag.path, undefined, drag.kind === "clip");
+              else actions.notify("info", "Drop sound on the Voice lane, the Music lane or a sound lane.");
+            })}
+          >
+            {noScenes ? (
+              <div className="pointer-events-none absolute inset-x-0 top-[calc(50%-12px)] z-10 flex justify-center">
+                <span className="rounded-md border border-dashed border-ed-line-strong bg-ed-panel px-4 py-2 text-[12px] text-ink-faint">Drag pictures, clips or sound here from the Media tab to start</span>
+              </div>
+            ) : null}
             {/* markers */}
-            <div className="relative bg-ed-track" style={{ height: LANES.markers, marginBottom: GAP }} onPointerDown={(event) => { if (event.target === event.currentTarget) { const rect = laneRef.current?.getBoundingClientRect(); onLaneClick(tOf(event.clientX - (rect?.left ?? 0))); } }}>
+            <div className="relative bg-ed-track" style={{ height: LANES.markers, marginBottom: GAP }} onPointerDown={lanePointer}>
               {state.sentences.map((sentence, i) => (
                 <span key={sentence.id} className="absolute bottom-0 h-1.5 w-px bg-[#4A5878]" style={{ left: xOf(sentence.start_s) }} title={`Sentence ${i + 1}: ${sentence.text}`} />
               ))}
@@ -570,7 +767,7 @@ export function Timeline() {
             </div>
 
             {/* popups */}
-            <div className="relative bg-ed-track-2" style={{ height: LANES.popups, marginBottom: GAP }} onPointerDown={(event) => { if (event.target === event.currentTarget) { const rect = laneRef.current?.getBoundingClientRect(); onLaneClick(tOf(event.clientX - (rect?.left ?? 0))); } }}>
+            <div className="relative bg-ed-track-2" style={{ height: LANES.popups, marginBottom: GAP }} onPointerDown={lanePointer}>
               {timeline.popups.map((popup) => {
                 const left = xOf(popup.start_s);
                 const w = Math.max(8, (popup.end_s - popup.start_s) * pps);
@@ -590,7 +787,7 @@ export function Timeline() {
             </div>
 
             {/* captions */}
-            <div className="relative bg-ed-track" style={{ height: LANES.captions, marginBottom: GAP }} onPointerDown={(event) => { if (event.target === event.currentTarget) { const rect = laneRef.current?.getBoundingClientRect(); onLaneClick(tOf(event.clientX - (rect?.left ?? 0))); } }}>
+            <div className="relative bg-ed-track" style={{ height: LANES.captions, marginBottom: GAP }} onPointerDown={lanePointer}>
               {timeline.captions.cues.map((cue) => {
                 const left = xOf(cue.start_s);
                 const w = Math.max(6, (cue.end_s - cue.start_s) * pps - 1);
@@ -606,8 +803,32 @@ export function Timeline() {
               })}
             </div>
 
+            {/* layers, the top layer first */}
+            {layersTopFirst.map((layer) => (
+              <div key={layer.id} className={cn("relative bg-ed-track-2", !layer.visible && "opacity-50", dropLane === layer.id && "outline outline-2 outline-accent/70", isSelected({ kind: "layer", id: layer.id }) && "outline outline-1 outline-accent/60")} style={{ height: LANES.layer, marginBottom: GAP }} onPointerDown={lanePointer} {...dropProps(layer.id, dropOnLayer(layer))}>
+                {layer.clips.map((clip: LayerClip) => {
+                  const left = xOf(clip.start_s);
+                  const w = Math.max(6, (clip.end_s - clip.start_s) * pps);
+                  if (left + w < 0 || left > width) return null;
+                  const selected = isSelected({ kind: "layerclip", id: clip.id });
+                  const thumb = thumbOf(clip.source);
+                  const canDrag = !lockedUi && !layer.locked;
+                  return (
+                    <div key={clip.id} className={cn("absolute top-0 flex h-full cursor-grab items-center gap-1 overflow-hidden rounded-[4px] bg-lane-layer text-[11px] text-white", selected && "outline outline-2 outline-accent")} style={{ left, width: w }} title={`${clip.name || clip.source}: ${clock(clip.start_s)} to ${clock(clip.end_s)}`} onPointerDown={(event) => { selectAndSeek({ kind: "layerclip", id: clip.id }, Math.max(clip.start_s, Math.min(time, clip.end_s - 0.05))); if (canDrag) beginDrag(event, { kind: "layerclip", id: clip.id }); }}>
+                      {thumb ? <span className="ml-0.5 block h-[30px] w-[54px] shrink-0 rounded-sm bg-black bg-cover bg-center" style={{ backgroundImage: `url("${thumb}")` }} aria-hidden /> : <span className="ml-1 grid size-5 shrink-0 place-items-center">{clip.kind === "clip" ? <Video className="size-3.5" aria-hidden /> : <ImageIcon className="size-3.5" aria-hidden />}</span>}
+                      <span className="truncate pr-2">{clip.name || clip.source.split("/").at(-1)}{clip.speed !== 1 ? ` · ${clip.speed}x` : ""}</span>
+                      {layer.locked ? <Hatch /> : null}
+                      <span className="absolute inset-y-0 -left-1 w-2 cursor-ew-resize" onPointerDown={(event) => { if (canDrag) beginDrag(event, { kind: "layerclip-edge", id: clip.id, edge: "start" }); }} />
+                      <span className="absolute inset-y-0 -right-1 w-2 cursor-ew-resize" onPointerDown={(event) => { if (canDrag) beginDrag(event, { kind: "layerclip-edge", id: clip.id, edge: "end" }); }} />
+                    </div>
+                  );
+                })}
+                {layer.clips.length === 0 ? <span className="pointer-events-none absolute left-2 top-2.5 text-[10px] text-white/50">Empty layer: drop a picture or clip here, or press "Add as a layer" under Media.</span> : null}
+              </div>
+            ))}
+
             {/* scenes */}
-            <div className="relative bg-ed-track-2" style={{ height: LANES.scenes, marginBottom: GAP }} onPointerDown={(event) => { if (event.target === event.currentTarget) { const rect = laneRef.current?.getBoundingClientRect(); onLaneClick(tOf(event.clientX - (rect?.left ?? 0))); } }}>
+            <div className={cn("relative bg-ed-track-2", dropLane === "scenes" && "outline outline-2 outline-accent/70")} style={{ height: LANES.scenes, marginBottom: GAP }} onPointerDown={lanePointer} {...dropProps("scenes", dropOnScenes)}>
               {timeline.scenes.map((scene, i) => {
                 const left = xOf(scene.start_s);
                 const w = Math.max(4, (scene.end_s - scene.start_s) * pps);
@@ -624,7 +845,9 @@ export function Timeline() {
                   <div key={`${scene.index}-${scene.image}`} className="absolute top-0 h-full" style={{ left, width: w }} onMouseEnter={() => setHover(i)} onMouseLeave={() => setHover((current) => (current === i ? null : current))}>
                     <div className={cn("absolute inset-0 overflow-hidden rounded-[4px] border-r border-ed-canvas", selected ? "outline outline-2 outline-accent" : hovered ? "outline outline-1 outline-ed-line-strong" : "")} onPointerDown={(event) => { event.stopPropagation(); const rect = laneRef.current?.getBoundingClientRect(); selectAndSeek({ kind: "scene", index: i }, tOf(event.clientX - (rect?.left ?? 0))); }} title={`${sceneTitle(scene, state.sentences)}: ${clock(scene.start_s)} to ${clock(scene.end_s)}`}>
                       <div className="flex h-4 items-center gap-1 bg-lane-scene px-1.5 text-[11px] font-semibold text-white/85">
+                        {scene.clip ? <Video className="size-3 shrink-0" aria-hidden /> : null}
                         <span className="truncate">{sceneTitle(scene, state.sentences)}</span>
+                        {scene.clip && scene.clip.speed !== 1 ? <span className="shrink-0 font-normal text-white/70">{scene.clip.speed}x</span> : null}
                         <span className="ml-auto shrink-0 font-normal text-white/70">{seconds(scene.end_s - scene.start_s)}</span>
                         {scene.edited.length > 0 ? <span className="size-1 rounded-full bg-white" title="Changed by you, kept when the timeline is built again" aria-hidden /> : null}
                       </div>
@@ -651,10 +874,11 @@ export function Timeline() {
             </div>
 
             {/* voice */}
-            <div className="relative overflow-hidden bg-lane-voice" style={{ height: LANES.voice, marginBottom: GAP }} onPointerDown={(event) => { const rect = laneRef.current?.getBoundingClientRect(); const t = tOf(event.clientX - (rect?.left ?? 0)); const pause = pauses.find((item) => t >= item.start_s && t < item.end_s); const sentence = state.sentences.find((item) => t >= item.start_s && t < item.end_s); if (pause) selectAndSeek({ kind: "pause", after: pause.after }, pause.start_s); else if (sentence) selectAndSeek({ kind: "sentence", id: sentence.id }, t); else onLaneClick(t); }}>
+            <div className={cn("relative overflow-hidden bg-lane-voice", dropLane === "voice" && "outline outline-2 outline-accent/70")} style={{ height: LANES.voice, marginBottom: GAP }} onPointerDown={(event) => { const rect = laneRef.current?.getBoundingClientRect(); const t = tOf(event.clientX - (rect?.left ?? 0)); const pause = pauses.find((item) => t >= item.start_s && t < item.end_s); const sentence = state.sentences.find((item) => t >= item.start_s && t < item.end_s); if (pause) selectAndSeek({ kind: "pause", after: pause.after }, pause.start_s); else if (sentence) selectAndSeek({ kind: "sentence", id: sentence.id }, t); else onLaneClick(t); }} {...dropProps("voice", dropOnVoice)}>
               <div className="absolute inset-x-0 top-[14px] bottom-0">
                 <Waveform peaks={state.voicePeaks} startS={scrollS} endS={visibleEnd} width={width} height={LANES.voice - 14} colour="#7FD6E6" fill={0.9} mirror />
               </div>
+              {state.timingSource === "scenes" ? <span className="pointer-events-none absolute left-2 top-2.5 text-[11px] text-white/60">No narration. Drop a sound file here, or press "Use as narration" under Media.</span> : null}
               {state.sentences.map((sentence, i) => (
                 <span key={sentence.id} className={cn("absolute top-[14px] bottom-0 w-px bg-white/30", isSelected({ kind: "sentence", id: sentence.id }) && "bg-accent")} style={{ left: xOf(sentence.start_s) }} title={`Sentence ${i + 1}`} />
               ))}
@@ -687,8 +911,31 @@ export function Timeline() {
               ) : null}
             </div>
 
+            {/* sound tracks */}
+            {timeline.audio_tracks.map((track) => (
+              <div key={track.id} className={cn("relative bg-ed-track-2", track.muted && "opacity-50", dropLane === track.id && "outline outline-2 outline-accent/70", isSelected({ kind: "track", id: track.id }) && "outline outline-1 outline-accent/60")} style={{ height: LANES.sound, marginBottom: GAP }} onPointerDown={lanePointer} {...dropProps(track.id, dropOnTrack(track))}>
+                {track.clips.map((clip: AudioClip) => {
+                  const left = xOf(clip.start_s);
+                  const w = Math.max(6, (clip.end_s - clip.start_s) * pps);
+                  if (left + w < 0 || left > width) return null;
+                  const selected = isSelected({ kind: "audioclip", id: clip.id });
+                  return (
+                    <div key={clip.id} className={cn("absolute top-0 flex h-full cursor-grab items-center gap-1 overflow-hidden rounded-[4px] bg-lane-sound text-[11px] text-white", selected && "outline outline-2 outline-accent")} style={{ left, width: w }} title={`${clip.name || clip.source}: ${clock(clip.start_s)} to ${clock(clip.end_s)}`} onPointerDown={(event) => { selectAndSeek({ kind: "audioclip", id: clip.id }, Math.max(clip.start_s, Math.min(time, clip.end_s - 0.05))); if (!lockedUi) beginDrag(event, { kind: "audioclip", id: clip.id }); }}>
+                      <span className="ml-1 grid size-5 shrink-0 place-items-center">{clip.voice ? <Mic className="size-3.5" aria-hidden /> : <Volume2 className="size-3.5" aria-hidden />}</span>
+                      <span className="truncate pr-2">{clip.name || clip.source.split("/").at(-1)}{clip.speed !== 1 ? ` · ${clip.speed}x` : ""}{clip.gain_db !== 0 ? ` · ${clip.gain_db > 0 ? "+" : ""}${clip.gain_db} dB` : ""}</span>
+                      {clip.fade_in_s > 0 ? <span className="pointer-events-none absolute inset-y-0 left-0 bg-[linear-gradient(90deg,rgba(0,0,0,0.5),transparent)]" style={{ width: clip.fade_in_s * pps }} aria-hidden /> : null}
+                      {clip.fade_out_s > 0 ? <span className="pointer-events-none absolute inset-y-0 right-0 bg-[linear-gradient(270deg,rgba(0,0,0,0.5),transparent)]" style={{ width: clip.fade_out_s * pps }} aria-hidden /> : null}
+                      <span className="absolute inset-y-0 -left-1 w-2 cursor-ew-resize" onPointerDown={(event) => { if (!lockedUi) beginDrag(event, { kind: "audioclip-edge", id: clip.id, edge: "start" }); }} />
+                      <span className="absolute inset-y-0 -right-1 w-2 cursor-ew-resize" onPointerDown={(event) => { if (!lockedUi) beginDrag(event, { kind: "audioclip-edge", id: clip.id, edge: "end" }); }} />
+                    </div>
+                  );
+                })}
+                {track.clips.length === 0 ? <span className="pointer-events-none absolute left-2 top-2 text-[10px] text-white/50">Empty track: drop a sound file here, or press "Add as a sound" under Media.</span> : null}
+              </div>
+            ))}
+
             {/* music */}
-            <div className={cn("relative overflow-hidden bg-lane-music", isSelected({ kind: "music" }) && "outline outline-2 outline-accent")} style={{ height: LANES.music }} onPointerDown={(event) => { actions.select({ kind: "music" }); if (timeline.music.path && !lockedUi) beginDrag(event, { kind: "music" }); }}>
+            <div className={cn("relative overflow-hidden bg-lane-music", isSelected({ kind: "music" }) && "outline outline-2 outline-accent", dropLane === "music" && "outline outline-2 outline-accent/70")} style={{ height: LANES.music }} onPointerDown={(event) => { actions.select({ kind: "music" }); if (timeline.music.path && !lockedUi) beginDrag(event, { kind: "music" }); }} {...dropProps("music", dropOnMusic)}>
               {timeline.music.path ? (
                 <>
                   <Waveform peaks={state.musicPeaks} gainCurve={state.envelope} startS={scrollS} endS={visibleEnd} width={width} height={LANES.music} colour="#9BE0B8" fill={0.55} mirror={false} />
@@ -698,7 +945,7 @@ export function Timeline() {
                   </span>
                 </>
               ) : (
-                <span className="absolute left-2 top-2.5 text-[11px] text-white/60">No music. Pick a track under Library, Music.</span>
+                <span className="absolute left-2 top-2.5 text-[11px] text-white/60">No music. Drop a sound file here, or press "Use as music" under Media.</span>
               )}
             </div>
 

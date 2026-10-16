@@ -19,16 +19,34 @@ from fastapi.testclient import TestClient
 from sigma_editor.app import create_app
 from sigma_editor.auth.passwords import hash_password
 from sigma_editor.auth.users import User, write_users_file
-from sigma_editor.config import load_settings
+from sigma_editor.config import load_settings, repo_root
 
 TEST_PASSWORD = "test-password-1"
 TEST_HASH = hash_password(TEST_PASSWORD)
 TEST_USERS = ("user1", "user2")
+CONFIG_FILES = ("render.yaml", "transitions.yaml", "captions.yaml")
+"""The app's own config files, copied into every test's config folder so a test runs the app
+as the team runs it (the render sizes, the transition catalogue, the caption looks)."""
+
+
+def clear_config_caches() -> None:
+    """Forget every cached YAML config: the next read follows ``SGE_CONFIG_DIR`` as it is now."""
+    from sigma_editor import config_files
+    from sigma_editor.policy import gates
+    from sigma_editor.render import captions, motion, presets, scene_clips
+
+    for module in (config_files, captions, motion, presets, scene_clips):
+        module.clear_caches()
+    gates.load_rules.cache_clear()
 
 
 @pytest.fixture
-def data_dirs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, Path]:
-    """Short folder names keep the temp paths well under the Windows 260-character limit."""
+def data_dirs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[dict[str, Path]]:
+    """Short folder names keep the temp paths well under the Windows 260-character limit.
+    The app's config files are copied in, and every cached config is forgotten before and
+    after, so a test that points ``SGE_CONFIG_DIR`` at the temp folder runs with the real
+    settings and never leaks them into the next test."""
+    clear_config_caches()
     folders = {
         "app": tmp_path / "app",
         "projects": tmp_path / "prj",
@@ -45,6 +63,10 @@ def data_dirs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, Path
     monkeypatch.delenv("SGE_FRONTEND_DIST", raising=False)
     folders["app"].mkdir(parents=True, exist_ok=True)
     folders["config"].mkdir(parents=True, exist_ok=True)
+    for name in CONFIG_FILES:
+        source = repo_root() / "config" / name
+        if source.is_file():
+            (folders["config"] / name).write_bytes(source.read_bytes())
     (folders["app"] / "settings.json").write_text(
         json.dumps(
             {"projects_dir": str(folders["projects"]), "exports_dir": str(folders["exports"])}
@@ -56,7 +78,8 @@ def data_dirs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, Path
         for name in TEST_USERS
     ]
     write_users_file(folders["app"] / "users.json", accounts)
-    return folders
+    yield folders
+    clear_config_caches()
 
 
 @pytest.fixture

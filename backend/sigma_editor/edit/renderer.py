@@ -37,6 +37,7 @@ from ..models.project import Project
 from ..models.timeline import (
     DEFAULT_ACTIVE_COLOUR,
     DEFAULT_CAPTION_PRESET,
+    MIN_CLIP_S,
     TIMELINE_FILE,
     EditReviewPayload,
     EditSceneView,
@@ -135,13 +136,15 @@ def files_fingerprint(folder: Path, paths: Iterable[Path | str]) -> str:
 
 
 def timeline_media(folder: Path, timeline: Timeline) -> list[Path]:
-    """Every file the render of ``timeline`` reads: the pictures, the voice, the music and
-    the intro and outro clips."""
+    """Every file the render of ``timeline`` reads: the pictures, the voice, the music, the
+    intro and outro clips and (v0.2) every clip, layer and sound track source."""
     paths = [ff.resolve_path(folder, scene.image) for scene in timeline.scenes if scene.image]
     paths.append(ff.resolve_path(folder, timeline.voice.path))
     for value in (timeline.music.path, timeline.intro.path, timeline.outro.path):
         if value:
             paths.append(ff.resolve_path(folder, value))
+    for value in timeline.source_files:
+        paths.append(ff.resolve_path(folder, value))
     return paths
 
 
@@ -187,9 +190,11 @@ def write_timeline(stage_dir: Path, timeline: Timeline) -> tuple[Path, bool]:
 
 def render_content(timeline: Timeline) -> dict[str, Any]:
     """The timeline as far as the finished video depends on it: without the preset list and
-    what the renderer ignores (``revision``, ``markers``, ``render``, ids, ``edited`` and
-    ``locked`` flags, popup anchors, a scene's ``sentence_ids``, the stem and envelope
-    paths), and without the fields that still hold their defaults."""
+    what the renderer ignores (``revision``, ``markers``, ``render``, ids and names,
+    ``edited`` and ``locked`` flags, popup anchors, a scene's ``sentence_ids``, the stem and
+    envelope paths), and without the fields that still hold their defaults (a scene's
+    ``clip``, ``frame`` and ``adjust`` when null, ``layers`` and ``audio_tracks`` when
+    empty, so a v0.1 timeline keeps its key)."""
     content = timeline.model_dump(
         mode="json", exclude={"presets", "revision", "markers", "render"}
     )
@@ -205,6 +210,24 @@ def render_content(timeline: Timeline) -> dict[str, Any]:
         motion = scene.get("motion") or {}
         if motion.get("ease") is None:
             motion.pop("ease", None)
+        for key in ("clip", "frame", "adjust"):
+            if scene.get(key) is None:
+                scene.pop(key, None)
+    for key in ("layers", "audio_tracks"):
+        if not content.get(key):
+            content.pop(key, None)
+    for layer in content.get("layers") or []:
+        for key in ("id", "name", "locked"):
+            layer.pop(key, None)
+        for clip in layer.get("clips") or []:
+            clip.pop("id", None)
+            clip.pop("name", None)
+    for track in content.get("audio_tracks") or []:
+        track.pop("id", None)
+        track.pop("name", None)
+        for clip in track.get("clips") or []:
+            for key in ("id", "name", "text", "voice"):
+                clip.pop(key, None)
     for popup in content.get("popups") or []:
         for key in ("id", "anchor", "edited", "locked"):
             popup.pop(key, None)
@@ -722,9 +745,29 @@ def _clip_segments(segments: list[VoiceSegment], start: float, end: float) -> li
     return out
 
 
+def _range_clips(clips: list[Any], start: float, end: float) -> list[dict[str, Any]]:
+    """The layer or sound clips of a lane inside ``start`` .. ``end``, moved so the range
+    starts at 0: a clip outside is dropped, one crossing an edge is cut there (a clip cut at
+    its start plays its file from ``in_s`` plus the cut seconds at its speed); ids stay."""
+    rows: list[dict[str, Any]] = []
+    for clip in clips:
+        first, last = max(float(clip.start_s), start), min(float(clip.end_s), end)
+        if last - first < MIN_CLIP_S:
+            continue
+        row = clip.model_dump(mode="json")
+        cut = first - float(clip.start_s)
+        if cut > 0:
+            row["in_s"] = round(float(clip.in_s) + cut * float(clip.speed), 6)
+        row["start_s"] = round(first - start, 3)
+        row["end_s"] = round(last - start, 3)
+        rows.append(row)
+    return rows
+
+
 def timeline_range(timeline: Timeline, start_s: float, end_s: float) -> Timeline:
     """The part of ``timeline`` between ``start_s`` and ``end_s`` as a timeline of its own
-    (starting at 0), for a range render."""
+    (starting at 0), for a range render. The layer and sound clips inside the range come
+    along (cut at its edges); a layer or sound track with none left stays, empty."""
     start = max(0.0, float(start_s))
     end = min(float(timeline.duration_s), float(end_s))
     if end - start < MIN_RANGE_S:
@@ -740,6 +783,9 @@ def timeline_range(timeline: Timeline, start_s: float, end_s: float) -> Timeline
         row["start_s"] = round(max(scene.start_s, start) - start, 3)
         row["end_s"] = round(min(scene.end_s, end) - start, 3)
         row["sentence_ids"] = []
+        if scene.clip is not None and scene.start_s < start:  # a clip scene cut at its start
+            cut = start - scene.start_s
+            row["clip"]["in_s"] = round(scene.clip.in_s + cut * scene.clip.speed, 6)
         new_index[scene.index] = len(scenes)
         scenes.append(row)
     if not scenes:
@@ -783,6 +829,14 @@ def timeline_range(timeline: Timeline, start_s: float, end_s: float) -> Timeline
     data["duration_s"] = round(scenes[-1]["end_s"], 3)
     data["intro"] = {"path": None}
     data["outro"] = {"path": None}
+    data["layers"] = [
+        {**layer.model_dump(mode="json"), "clips": _range_clips(layer.clips, start, end)}
+        for layer in timeline.layers
+    ]
+    data["audio_tracks"] = [
+        {**track.model_dump(mode="json"), "clips": _range_clips(track.clips, start, end)}
+        for track in timeline.audio_tracks
+    ]
     return Timeline.model_validate(data)
 
 

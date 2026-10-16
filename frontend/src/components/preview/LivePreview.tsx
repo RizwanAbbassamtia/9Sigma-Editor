@@ -227,7 +227,14 @@ export function LivePreview({
   // asks for; one of unknown size comes whole, so the engine reads its real size from the file
   // (the camera rectangles are in the picture's own pixels).
   const sizedPaths = useRef<ReadonlySet<string>>(new Set());
-  sizedPaths.current = useMemo(() => new Set((bundle?.pictures ?? []).filter((picture) => picture.width > 0 && picture.height > 0).map((picture) => picture.path)), [bundle]);
+  sizedPaths.current = useMemo(
+    () =>
+      new Set([
+        ...(bundle?.pictures ?? []).filter((picture) => picture.width > 0 && picture.height > 0).map((picture) => picture.path),
+        ...(bundle?.sources ?? []).filter((source) => source.kind === "picture" && source.width > 0 && source.height > 0).map((source) => source.path),
+      ]),
+    [bundle],
+  );
   const options = useMemo<EngineOptionsBase>(
     () => ({
       projectId,

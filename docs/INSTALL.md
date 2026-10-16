@@ -13,22 +13,34 @@
 
 The app keeps every edit in `Videos\9SigmaEditor\projects\<date>_<name>\` and every export in
 `Videos\9SigmaEditor\exports\` (both can be changed under **Settings > Folders**). Nothing leaves
-the computer: there is no sign-in to any online service and no upload.
+the computer: there is no upload and no online service, apart from the AI voice when you choose
+to use it with your own key.
 
 When a newer version is published, a notice appears at the top of the app with **Update now**.
 
 ### Making a video
 
-1. **My edits > New edit**: pick the pictures and clips (one per scene), the narration recording,
-   the music, and either type the caption text or add an SRT/VTT file. Name it and press
-   **Make the edit**.
-2. The editor opens. Play the live preview, change a transition on the strip, add or replace
-   scenes, switch popups and captions, choose the music and its volume, move sentence starts in
-   **Timing**, fix the text in **Captions**.
-3. **Render**: tick the sizes, pick the quality (Standard, High, Best) and, for YouTube, the
-   upload preset, then **Render selected**. Progress shows on each size; **Stop** cancels.
-4. **Export** puts the rendered files, a poster frame and `export.txt` (with checksums) into the
-   exports folder; **Open export folder** shows them.
+1. **My edits > Create project**: give it a name and a shape (16:9 or 9:16). The editor opens
+   empty, like CapCut. (**Start from files** still makes a whole edit in one go from pictures,
+   clips, a narration, music and caption text.)
+2. **Media** (the first tab on the left): press **Import** or drag your pictures, clips and sound
+   files in. On each file: **Add to video** (a picture or clip becomes a scene), **Add as a
+   layer** (over the scenes, at the playhead), **Use as narration**, **Use as music** or **Add as
+   a sound** (a sound track under the voice). You can also drag a file straight onto a lane of
+   the timeline.
+3. Click a scene, a layer clip or a sound clip and the inspector on the right shows its
+   settings: the length of a picture, the speed of a clip or a sound, where in the file it
+   starts, its frame (position, scale, rotation, opacity, crop, flips), its colour (brightness,
+   contrast, colour) and its sound. Layers and sound tracks are added with the two buttons on
+   the timeline toolbar; their lanes have show, lock and mute buttons.
+4. **AI voice** (under the **Text** tab): type what the voice should say, pick a voice and press
+   **Make the voice**: it goes on a sound track at the playhead, or becomes the narration (the
+   scenes and captions then follow its words). It needs your ElevenLabs API key under
+   **Settings > AI voice**; this is the one thing in the app that uses the internet.
+5. **Render**: tick the sizes, pick the quality (Standard, High, Best) and, for YouTube, the
+   upload preset, then **Render**. Progress shows on each size; **Stop** cancels.
+6. **Export** (in the Render menu) puts the rendered files, a poster frame and `export.txt`
+   (with checksums) into the exports folder; **Open the export folder** shows them.
 
 ### If something is wrong
 

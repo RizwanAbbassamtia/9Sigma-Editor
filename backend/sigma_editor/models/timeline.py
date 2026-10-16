@@ -17,6 +17,11 @@ track as sentence clips), popup ``id`` / ``anchor`` / ``edited`` / ``locked``, c
 ``envelope`` (``07_edit/music_ducked.wav`` and ``music_envelope.json``). Missing popup, cue
 and marker ids are filled with positional ones (``pop-001``, ``cue-0001``, ``mark-001``) when
 a timeline is read. The route shapes of the live preview (``api/preview.py``) are at the end.
+
+9Sigma Editor v0.2 (docs/CONTRACT-v0.2.md sections 3 and 4) adds, again all optional with
+defaults so a v0.1 timeline reads and renders the same: ``layers`` (pictures and clips drawn
+over the scenes), ``audio_tracks`` (sound clips mixed under the voice), a scene's ``clip``
+(the video clip it plays), ``frame`` (where a clip sits in the frame) and ``adjust`` (colour).
 """
 
 from __future__ import annotations
@@ -296,6 +301,90 @@ class TimelineTransition(BaseModel):
         return clamp_transition_s(value)
 
 
+# Layers, sound tracks, frames (docs/CONTRACT-v0.2.md sections 3 and 4) --------------------------
+
+MIN_SPEED = 0.25
+MAX_SPEED = 4.0
+MAX_CROP = 0.95
+"""The most one edge may crop away (fractions of the source)."""
+MIN_CLIP_S = 0.1
+FrameFit = Literal["cover", "contain"]
+LayerClipKind = Literal["picture", "clip"]
+AudioTrackKind = Literal["voice", "sound"]
+
+
+def _crop_list(value: Any) -> list[float]:
+    if value is None:
+        return [0.0, 0.0, 0.0, 0.0]
+    if not isinstance(value, list | tuple) or len(value) != 4:
+        raise ValueError("a crop is [left, top, right, bottom], fractions of the picture")
+    crop = [min(max(float(v), 0.0), MAX_CROP) for v in value]
+    if crop[0] + crop[2] >= 0.98 or crop[1] + crop[3] >= 0.98:
+        raise ValueError("that crop leaves nothing of the picture")
+    return crop
+
+
+class FrameAdjust(BaseModel):
+    """Where a picture or clip sits in the frame (CapCut's Basic and Crop): the centre as
+    fractions of the frame (0, 0 = the middle), the scale (1 = fills the frame as ``fit``
+    says), a rotation in degrees, the opacity, a crop of the source and the flips."""
+
+    x: float = Field(default=0.0, ge=-2, le=2, description="centre, fraction of the frame width")
+    y: float = Field(default=0.0, ge=-2, le=2, description="centre, fraction of the frame height")
+    scale: float = Field(default=1.0, gt=0, le=10, description="1 = fills the frame as fit says")
+    rotation: float = Field(default=0.0, ge=-360, le=360, description="degrees, clockwise")
+    opacity: float = Field(default=1.0, ge=0, le=1)
+    crop: list[float] = Field(
+        default=[0.0, 0.0, 0.0, 0.0],
+        description="left, top, right, bottom, each a fraction of the source cut away",
+    )
+    fit: FrameFit = Field(default="contain", description="cover fills the frame, contain fits "
+                          "the whole picture inside it")
+    flip_h: bool = False
+    flip_v: bool = False
+
+    @field_validator("crop", mode="before")
+    @classmethod
+    def _crop(cls, value: Any) -> list[float]:
+        return _crop_list(value)
+
+    @property
+    def is_default(self) -> bool:
+        return self == FrameAdjust(fit=self.fit) and self.fit == "contain"
+
+    @property
+    def is_identity(self) -> bool:
+        """No change to the picture apart from how it fits."""
+        return (
+            self.x == 0.0 and self.y == 0.0 and self.scale == 1.0 and self.rotation == 0.0
+            and self.opacity == 1.0 and not any(self.crop) and not self.flip_h and not self.flip_v
+        )
+
+
+class ColourAdjust(BaseModel):
+    """CapCut's Adjust: brightness, contrast and saturation, -1 to 1 (0 = as shot)."""
+
+    brightness: float = Field(default=0.0, ge=-1, le=1)
+    contrast: float = Field(default=0.0, ge=-1, le=1)
+    saturation: float = Field(default=0.0, ge=-1, le=1)
+
+    @property
+    def is_default(self) -> bool:
+        return self.brightness == 0.0 and self.contrast == 0.0 and self.saturation == 0.0
+
+
+class ClipSource(BaseModel):
+    """The video clip a scene plays (its ``image`` is the poster frame): from ``in_s`` of the
+    file, at ``speed``, its own sound kept or not."""
+
+    path: str = Field(min_length=1, description="relative to the edit's folder (01_media/...)")
+    in_s: float = Field(default=0.0, ge=0, description="where in the clip the scene starts")
+    speed: float = Field(default=1.0, ge=MIN_SPEED, le=MAX_SPEED)
+    keep_sound: bool = False
+    gain_db: float = Field(default=0.0, ge=-60, le=12)
+    duration_s: float | None = Field(default=None, ge=0, description="the file's own length")
+
+
 class TimelineScene(BaseModel):
     index: int = Field(ge=0)
     image: str = Field(description="relative to the project folder, e.g. 06_images/scene_01.png")
@@ -312,6 +401,14 @@ class TimelineScene(BaseModel):
         description="the fields a person changed (motion, transition_out, image, times ...); "
         "a rebuild keeps them",
     )
+    # v0.2: a scene made from a video clip, and how it sits in the frame.
+    clip: ClipSource | None = Field(
+        default=None, description="the video clip this scene plays; null = a still picture"
+    )
+    frame: FrameAdjust | None = Field(
+        default=None, description="clips: where the clip sits in the frame; null = fills it"
+    )
+    adjust: ColourAdjust | None = Field(default=None, description="colour; null = as shot")
 
     @model_validator(mode="after")
     def _ordered(self) -> TimelineScene:
@@ -324,6 +421,101 @@ class TimelineScene(BaseModel):
     @property
     def duration_s(self) -> float:
         return round(self.end_s - self.start_s, 6)
+
+
+def _no_overlaps(clips: list[Any], what: str) -> None:
+    ordered = sorted(clips, key=lambda c: (c.start_s, c.end_s))
+    for earlier, later in zip(ordered, ordered[1:], strict=False):
+        if later.start_s + 1e-3 < earlier.end_s:
+            raise ValueError(
+                f"two {what} overlap ({earlier.name or earlier.source} ends at {earlier.end_s} s, "
+                f"{later.name or later.source} starts at {later.start_s} s)"
+            )
+    clips[:] = ordered
+
+
+class LayerClip(BaseModel):
+    """A picture or clip drawn over the scenes between ``start_s`` and ``end_s``."""
+
+    id: str = Field(default="", description="stable id (lc-001 ...); filled when empty")
+    source: str = Field(min_length=1, description="a picture or clip in the edit's folder")
+    kind: LayerClipKind = "picture"
+    name: str = ""
+    start_s: float = Field(ge=0)
+    end_s: float = Field(ge=0)
+    in_s: float = Field(default=0.0, ge=0, description="clips: where in the file it starts")
+    speed: float = Field(default=1.0, ge=MIN_SPEED, le=MAX_SPEED)
+    keep_sound: bool = False
+    gain_db: float = Field(default=0.0, ge=-60, le=12)
+    duration_s: float | None = Field(default=None, ge=0, description="the file's own length")
+    frame: FrameAdjust = FrameAdjust()
+    adjust: ColourAdjust = ColourAdjust()
+
+    @model_validator(mode="after")
+    def _ordered(self) -> LayerClip:
+        if self.end_s < self.start_s + MIN_CLIP_S:
+            raise ValueError(f"the layer clip {self.name or self.source} is too short")
+        return self
+
+    @property
+    def duration_s_on_timeline(self) -> float:
+        return round(self.end_s - self.start_s, 6)
+
+
+class Layer(BaseModel):
+    """One layer of pictures and clips over the scenes (the last layer is the top one)."""
+
+    id: str = Field(default="", description="stable id (layer-01 ...); filled when empty")
+    name: str = ""
+    visible: bool = True
+    locked: bool = False
+    clips: list[LayerClip] = []
+
+    @model_validator(mode="after")
+    def _clips_apart(self) -> Layer:
+        _no_overlaps(self.clips, "clips on one layer")
+        return self
+
+
+class AudioClip(BaseModel):
+    """A sound file (a voice, an effect, an AI voice) playing between ``start_s`` and
+    ``end_s`` on a sound track."""
+
+    id: str = Field(default="", description="stable id (ac-001 ...); filled when empty")
+    source: str = Field(min_length=1, description="a sound file in the edit's folder")
+    name: str = ""
+    start_s: float = Field(ge=0)
+    end_s: float = Field(ge=0)
+    in_s: float = Field(default=0.0, ge=0, description="where in the file it starts")
+    speed: float = Field(default=1.0, ge=MIN_SPEED, le=MAX_SPEED)
+    gain_db: float = Field(default=0.0, ge=-60, le=12)
+    fade_in_s: float = Field(default=0.0, ge=0, le=30)
+    fade_out_s: float = Field(default=0.0, ge=0, le=30)
+    duration_s: float | None = Field(default=None, ge=0, description="the file's own length")
+    text: str = Field(default="", description="an AI voice: the text it says")
+    voice: str = Field(default="", description="an AI voice: the voice it was made with")
+
+    @model_validator(mode="after")
+    def _ordered(self) -> AudioClip:
+        if self.end_s < self.start_s + MIN_CLIP_S:
+            raise ValueError(f"the sound clip {self.name or self.source} is too short")
+        return self
+
+
+class AudioTrack(BaseModel):
+    """A sound track under the voice."""
+
+    id: str = Field(default="", description="stable id (track-01 ...); filled when empty")
+    name: str = ""
+    kind: AudioTrackKind = "sound"
+    muted: bool = False
+    gain_db: float = Field(default=0.0, ge=-60, le=12)
+    clips: list[AudioClip] = []
+
+    @model_validator(mode="after")
+    def _clips_apart(self) -> AudioTrack:
+        _no_overlaps(self.clips, "clips on one sound track")
+        return self
 
 
 class PopupAnchor(BaseModel):
@@ -488,12 +680,29 @@ class Timeline(BaseModel):
     )
     markers: list[TimelineMarker] = []
     render: TimelineRender = TimelineRender()
+    # v0.2 (docs/CONTRACT-v0.2.md section 3)
+    layers: list[Layer] = Field(
+        default=[], description="pictures and clips drawn over the scenes, bottom layer first"
+    )
+    audio_tracks: list[AudioTrack] = Field(
+        default=[], description="sound tracks mixed under the voice"
+    )
 
     @model_validator(mode="after")
     def _ids(self) -> Timeline:
         _fill_ids(self.popups, "pop", 3)
         _fill_ids(self.captions.cues, "cue", 4)
         _fill_ids(self.markers, "mark", 3)
+        _fill_ids(self.layers, "layer", 2)
+        _fill_ids([clip for layer in self.layers for clip in layer.clips], "lc", 3)
+        _fill_ids(self.audio_tracks, "track", 2)
+        _fill_ids([clip for track in self.audio_tracks for clip in track.clips], "ac", 3)
+        for number, layer in enumerate(self.layers, start=1):
+            if not layer.name:
+                layer.name = f"Layer {number}"
+        for number, track in enumerate(self.audio_tracks, start=1):
+            if not track.name:
+                track.name = f"Sound {number}"
         return self
 
     @model_validator(mode="after")
@@ -530,6 +739,42 @@ class Timeline(BaseModel):
             if scene.transition_out.type not in seen:
                 seen.append(scene.transition_out.type)
         return seen
+
+    @property
+    def source_files(self) -> list[str]:
+        """Every layer and sound clip source and every scene's clip (relative paths)."""
+        out: list[str] = []
+        for scene in self.scenes:
+            if scene.clip is not None and scene.clip.path not in out:
+                out.append(scene.clip.path)
+        for layer in self.layers:
+            for clip in layer.clips:
+                if clip.source not in out:
+                    out.append(clip.source)
+        for track in self.audio_tracks:
+            for clip in track.clips:
+                if clip.source not in out:
+                    out.append(clip.source)
+        return out
+
+    def uses_of(self, path: str) -> list[str]:
+        """Plain words for where a file is used: "scene 3", "layer 1", "sound 2"."""
+        key = path.replace("\\", "/").lower()
+        uses: list[str] = []
+        for scene in self.scenes:
+            if scene.clip is not None and scene.clip.path.replace("\\", "/").lower() == key:
+                uses.append(f"scene {scene.index + 1}")
+            elif scene.image.replace("\\", "/").lower() == key:
+                uses.append(f"scene {scene.index + 1}")
+        for number, layer in enumerate(self.layers, start=1):
+            if any(c.source.replace("\\", "/").lower() == key for c in layer.clips):
+                uses.append(layer.name or f"layer {number}")
+        for number, track in enumerate(self.audio_tracks, start=1):
+            if any(c.source.replace("\\", "/").lower() == key for c in track.clips):
+                uses.append(track.name or f"sound {number}")
+        if self.music.path and self.music.path.replace("\\", "/").lower().endswith(key):
+            uses.append("the music")
+        return uses
 
 
 # Edits -------------------------------------------------------------------------------------
@@ -729,6 +974,18 @@ class BundleFont(BaseModel):
     url: str
 
 
+class BundleSource(BaseModel):
+    """v0.2: a file a layer or sound clip (or a clip scene) plays, with what the preview needs."""
+
+    path: str = Field(description="relative to the edit's folder")
+    kind: Literal["picture", "clip", "audio", "captions"] = "picture"
+    width: int = 0
+    height: int = 0
+    duration_s: float | None = None
+    thumb_url: str | None = None
+    url: str = ""
+
+
 class PreviewGainCurve(BaseModel):
     """The gain the renderer's ``loudnorm`` gives the mix (voice + music stem), measured on
     that mix: ``gain_db[i]`` covers ``i * step_s`` .. ``(i + 1) * step_s`` seconds."""
@@ -783,6 +1040,10 @@ class TimelineBundle(BaseModel):
         default=None,
         description="loudnorm's gain over the video when it has been measured for this "
         "sound (the preview follows it instead of the one preview_gain_db)",
+    )
+    # v0.2 (docs/CONTRACT-v0.2.md section 7)
+    sources: list[BundleSource] = Field(
+        default=[], description="the files of the layer and sound clips and the clip scenes"
     )
 
 

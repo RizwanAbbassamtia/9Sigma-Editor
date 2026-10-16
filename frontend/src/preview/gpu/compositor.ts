@@ -5,9 +5,10 @@
  * frame), popups and captions as sprites on top. A lost WebGL context is reported to the engine,
  * which shows "Restarting the preview..." and falls back to Canvas 2D when it does not come back.
  */
-import { Container, GlProgram, Mesh, MeshGeometry, RenderTexture, Shader, Sprite, Texture, TextureSource, UniformGroup, WebGLRenderer, CanvasSource, ImageSource } from "pixi.js";
+import { ColorMatrixFilter, Container, GlProgram, Mesh, MeshGeometry, Rectangle, RenderTexture, Shader, Sprite, Texture, TextureSource, UniformGroup, VideoSource, WebGLRenderer, CanvasSource, ImageSource } from "pixi.js";
 
-import type { Compositor, DrawInput, Overlay, SceneSource, SlateImage } from "../compositor";
+import type { Compositor, DrawInput, LayerDraw, Overlay, SceneSource, SlateImage } from "../compositor";
+import { isIdentityFrame, placeInFrame, type AdjustDesc } from "../frame";
 import type { Rect } from "../motion";
 import { parallaxMesh, type MeshFrame, type ParallaxPlan } from "../parallax";
 import type { Picture } from "../pictures";
@@ -90,6 +91,13 @@ export class GpuCompositor implements Compositor {
   private readonly floatTargets: boolean;
   private lost = false;
   private destroyed = false;
+  /** v0.2: one texture per video element (clip scenes and clip layers) */
+  private readonly videoTextures = new Map<HTMLVideoElement, Texture>();
+  /** v0.2: the sprites of the layer clips on screen, by key */
+  private readonly layerSprites = new Map<string, { sprite: Sprite; texture: Texture; sourceKey: string; crop: string; filter: ColorMatrixFilter | null; used: number }>();
+  private readonly placedHolder = new Container();
+  private readonly placedBlack = new Sprite(Texture.WHITE);
+  private readonly sceneFilter = new ColorMatrixFilter();
 
   private constructor(
     private readonly renderer: WebGLRenderer,
@@ -407,6 +415,93 @@ export class GpuCompositor implements Compositor {
 
   // Scenes ----------------------------------------------------------------------------------
 
+  /** v0.2: the texture of a video element (updated from the element's current frame on every draw). */
+  private videoTexture(video: HTMLVideoElement): Texture {
+    let texture = this.videoTextures.get(video);
+    if (!texture) {
+      const source = new VideoSource({ resource: video, autoPlay: false, autoLoad: false, updateFPS: 0, scaleMode: "linear", alphaMode: "no-premultiply-alpha" });
+      source.autoUpdate = false;
+      texture = new Texture({ source });
+      this.videoTextures.set(video, texture);
+    }
+    texture.source.update();
+    return texture;
+  }
+
+  /** v0.2: a matrix for an adjust (FFmpeg's eq: brightness adds, contrast and saturation scale). */
+  private static applyAdjust(filter: ColorMatrixFilter, adjust: AdjustDesc): void {
+    filter.reset();
+    if (adjust.brightness !== 0) filter.brightness(1 + adjust.brightness, true);
+    if (adjust.contrast !== 0) filter.contrast(adjust.contrast, true);
+    if (adjust.saturation !== 0) filter.saturate(adjust.saturation * 1.5, true);
+  }
+
+  /** v0.2: a picture or video placed in the frame (a layer clip, or a clip scene with a frame). */
+  private placedSprite(layer: LayerDraw, clock: number): Sprite | null {
+    const image = layer.image;
+    const video = typeof HTMLVideoElement !== "undefined" && image instanceof HTMLVideoElement ? image : null;
+    const naturalW = video ? video.videoWidth : (image as ImageBitmap).width;
+    const naturalH = video ? video.videoHeight : (image as ImageBitmap).height;
+    if (naturalW <= 0 || naturalH <= 0) return null;
+    const imageW = layer.imageW || naturalW;
+    const imageH = layer.imageH || naturalH;
+    const place = placeInFrame(layer.frame, imageW, imageH, this.width, this.height);
+    const fx = naturalW / imageW;
+    const fy = naturalH / imageH;
+    const sourceKey = video ? "video" : `bitmap:${layer.version}`;
+    const crop = [place.sx * fx, place.sy * fy, place.sw * fx, place.sh * fy].map((v) => Math.round(v)).join(",");
+    let held = this.layerSprites.get(layer.key);
+    const base = video ? this.videoTexture(video) : null;
+    if (held && (held.sourceKey !== sourceKey || held.crop !== crop || (video && held.texture.source !== base!.source))) {
+      held.sprite.removeFromParent();
+      held.sprite.destroy();
+      if (!video) held.texture.destroy(true);
+      this.layerSprites.delete(layer.key);
+      held = undefined;
+    }
+    if (!held) {
+      const source = video ? base!.source : new ImageSource({ resource: image as ImageBitmap, autoGenerateMipmaps: true, scaleMode: "linear", mipmapFilter: "linear", addressMode: "clamp-to-edge", alphaMode: "premultiplied-alpha" });
+      const [cx, cy, cw, ch] = crop.split(",").map(Number) as [number, number, number, number];
+      const texture = new Texture({ source, frame: new Rectangle(cx, cy, Math.max(1, cw), Math.max(1, ch)) });
+      const sprite = new Sprite(texture);
+      sprite.anchor.set(0.5);
+      held = { sprite, texture, sourceKey, crop, filter: null, used: clock };
+      this.layerSprites.set(layer.key, held);
+    }
+    held.used = clock;
+    const sprite = held.sprite;
+    const frameW = Math.max(1, held.texture.frame.width);
+    const frameH = Math.max(1, held.texture.frame.height);
+    sprite.position.set(place.cx, place.cy);
+    sprite.scale.set((place.w / frameW) * (place.flipH ? -1 : 1), (place.h / frameH) * (place.flipV ? -1 : 1));
+    sprite.rotation = place.rotation;
+    sprite.alpha = Math.min(1, Math.max(0, place.alpha));
+    if (layer.adjust) {
+      if (!held.filter) held.filter = new ColorMatrixFilter();
+      GpuCompositor.applyAdjust(held.filter, layer.adjust);
+      sprite.filters = [held.filter];
+    } else if (held.filter) {
+      sprite.filters = null;
+    }
+    return sprite;
+  }
+
+  private placeLayers(layers: readonly LayerDraw[], clock: number): void {
+    const seen = new Set<string>();
+    for (const layer of layers) {
+      seen.add(layer.key);
+      const sprite = this.placedSprite(layer, clock);
+      if (sprite) this.stage.addChild(sprite);
+    }
+    // sprites of clips that left the screen a while ago are freed
+    for (const [key, held] of [...this.layerSprites]) {
+      if (seen.has(key) || clock - held.used < 120) continue;
+      held.sprite.destroy();
+      if (held.sourceKey !== "video") held.texture.destroy(true);
+      this.layerSprites.delete(key);
+    }
+  }
+
   /** The display object of one scene frame (KB quad, parallax mesh, slate or nothing). */
   private sceneObject(slot: 0 | 1, ref: SceneRef, input: DrawInput): Container | null {
     const source: SceneSource = input.source(ref.scene);
@@ -417,12 +512,25 @@ export class GpuCompositor implements Compositor {
       sprite.height = this.height;
       return sprite;
     }
+    const video = source.video ?? null;
     const picture = source.picture;
-    if (!picture) return null;
-    const texture = this.pictureTexture(picture);
-    const imageW = picture.imageWidth;
-    const imageH = picture.imageHeight;
-    if (source.parallax && ref.camera) {
+    if (video && source.frame && !isIdentityFrame(source.frame)) {
+      // a clip scene placed in the frame over black
+      const holder = this.placedHolder;
+      holder.removeChildren();
+      this.placedBlack.tint = 0x000000;
+      this.placedBlack.width = this.width;
+      this.placedBlack.height = this.height;
+      holder.addChild(this.placedBlack);
+      const sprite = this.placedSprite({ key: `scene-${slot}`, image: video, version: 0, imageW: video.videoWidth, imageH: video.videoHeight, frame: source.frame, adjust: null }, ++this.overlayClock);
+      if (sprite) holder.addChild(sprite);
+      return holder;
+    }
+    if (!picture && !video) return null;
+    const texture = video ? this.videoTexture(video) : this.pictureTexture(picture!);
+    const imageW = video ? Math.max(1, ref.scene.imageSize?.[0] ?? video.videoWidth) : picture!.imageWidth;
+    const imageH = video ? Math.max(1, ref.scene.imageSize?.[1] ?? video.videoHeight) : picture!.imageHeight;
+    if (!video && picture && source.parallax && ref.camera) {
       const plan = source.parallax;
       const plates = plan.analysis.alpha && plan.plates ? this.plateTexturesOf(plan) : null;
       const pictureRect: Rect = [0, 0, imageW, imageH];
@@ -634,7 +742,16 @@ export class GpuCompositor implements Compositor {
       else main = this.drawCut(state, input);
     }
     this.stage.removeChildren();
-    if (main) this.stage.addChild(main);
+    if (main) {
+      if (input.adjust) {
+        GpuCompositor.applyAdjust(this.sceneFilter, input.adjust);
+        main.filters = [this.sceneFilter];
+      } else if (main.filters) {
+        main.filters = null;
+      }
+      this.stage.addChild(main);
+    }
+    if (input.layers && input.layers.length) this.placeLayers(input.layers, ++this.overlayClock);
     if (fadeAlpha > 0) {
       this.fade.width = this.width;
       this.fade.height = this.height;
@@ -809,6 +926,8 @@ export class GpuCompositor implements Compositor {
     this.targets.clear();
     this.pictures.clear();
     this.plateTextures.clear();
+    this.videoTextures.clear();
+    this.layerSprites.clear();
     this.slates[0] = this.slates[1] = null;
     this.overlaySprites.clear();
     this.retired.length = 0;

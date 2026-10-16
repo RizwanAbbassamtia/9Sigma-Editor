@@ -6,6 +6,7 @@ import { errorMessage } from "../api/client";
 import { useDeleteProject, useOpenProjectFolder, usePatchProject, useProjects } from "../api/projects";
 import { formatClock } from "../components/edit/editUtils";
 import { ProjectThumb } from "../components/editing/ProjectThumb";
+import { CreateProjectDialog } from "../components/edits/CreateProjectDialog";
 import { NewEditDialog } from "../components/edits/NewEditDialog";
 import { CountLine } from "../components/master/CountLine";
 import { matchesText } from "../components/master/format";
@@ -39,6 +40,7 @@ export function EditsPage() {
   const { toast } = useToast();
   const [search, setSearch] = useState("");
   const [creating, setCreating] = useState(false);
+  const [starting, setStarting] = useState(false);
   const [renaming, setRenaming] = useState<ProjectSummary | null>(null);
   const [deleting, setDeleting] = useState<ProjectSummary | null>(null);
   const projects = useProjects({ refetchInterval: 15_000 });
@@ -90,13 +92,26 @@ export function EditsPage() {
     <div className="flex flex-col gap-6">
       <PageHeader
         title="My edits"
-        description="Every video you are making on this computer. Open one to edit it, or start a new one from your pictures, clips and narration."
+        description="Every video you are making on this computer. Create a project and import your pictures, clips and sound in the editor, or start one from files."
         actions={
-          <Button variant="primary" icon={<Plus />} onClick={() => setCreating(true)}>
-            New edit
+          <Button variant="secondary" icon={<Plus />} onClick={() => setCreating(true)}>
+            Start from files
           </Button>
         }
       />
+
+      <button
+        type="button"
+        onClick={() => setStarting(true)}
+        className="group flex w-full items-center justify-center gap-3 rounded-card border border-accent/40 bg-[linear-gradient(120deg,rgba(255,196,0,0.18),rgba(58,134,255,0.18))] px-6 py-10 text-ink shadow-card transition-colors hover:border-accent"
+        title="An empty project: import pictures, clips and sound in the editor"
+      >
+        <span className="grid size-10 place-items-center rounded-lg bg-accent text-accent-ink">
+          <Plus className="size-6" aria-hidden />
+        </span>
+        <span className="text-2xl font-semibold">Create project</span>
+        <span className="hidden text-sm text-ink-muted sm:block">Empty to start with: import your pictures, clips and sound inside the editor, like CapCut.</span>
+      </button>
 
       {rows.length > 0 ? (
         <div className="flex flex-wrap items-center gap-2">
@@ -112,11 +127,11 @@ export function EditsPage() {
         ) : rows.length === 0 ? (
           <EmptyState
             icon={Clapperboard}
-            title="No edits yet"
-            description="Start with New edit: pick your pictures or clips, add the narration and the music, and the first timeline is built for you."
+            title="No projects yet"
+            description="Press Create project and import your pictures, clips and sound in the editor. Or start from files: pick them all at once and the first timeline is built for you."
             action={
-              <Button variant="primary" icon={<Plus />} onClick={() => setCreating(true)}>
-                New edit
+              <Button variant="primary" icon={<Plus />} onClick={() => setStarting(true)}>
+                Create project
               </Button>
             }
           />
@@ -194,6 +209,7 @@ export function EditsPage() {
       </Card>
 
       <NewEditDialog open={creating} onClose={() => setCreating(false)} />
+      <CreateProjectDialog open={starting} onClose={() => setStarting(false)} />
 
       <Dialog
         open={renaming !== null}

@@ -1,6 +1,7 @@
-import { Crosshair, Maximize2 } from "lucide-react";
+import { Crosshair, FolderInput, Maximize2, Upload } from "lucide-react";
 import { useMemo, useState } from "react";
 
+import { FilesPickButton } from "../../components/form/FilesPickButton";
 import { LivePreview } from "../../components/preview/LivePreview";
 import { useStoreTime } from "../../components/preview/timeStore";
 import { Transport } from "../../components/preview/Transport";
@@ -8,6 +9,7 @@ import { cn } from "../../lib/cn";
 import { bundleFromTimeline, withOverlays } from "../../components/preview/bundle";
 import { useEditor } from "./context";
 import { timecode } from "./document";
+import { LIBRARY_ACCEPT } from "./Library";
 
 function SafeAreas({ portrait }: { portrait: boolean }) {
   return (
@@ -62,18 +64,29 @@ export function Monitor({ preparingMusic }: { preparingMusic: boolean }) {
           </HeaderToggle>
         </div>
       </div>
-      <LivePreview
-        projectId={state.projectId}
-        controllerRef={actions.preview}
-        bundle={liveBundle}
-        aspect={state.timeline.aspect}
-        chrome="monitor"
-        timeStore={state.timeStore}
-        loopRange={loopRange}
-        onPlayingChange={undefined}
-        frameOverlay={safe ? <SafeAreas portrait={portrait} /> : null}
-        className="min-h-0 flex-1"
-      />
+      {state.timeline.scenes.length === 0 ? (
+        <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-3 bg-black px-6 text-center">
+          <FolderInput className="size-8 text-ink-faint" aria-hidden />
+          <p className="text-[13px] font-medium text-ink">Add pictures, clips or sound from the Media tab to start</p>
+          <p className="max-w-sm text-[11px] text-ink-faint">Import your files on the left, then press "Add to video" on a picture or clip. The video is built from those scenes; layers, sounds, the narration and the music go on top.</p>
+          <FilesPickButton accept={LIBRARY_ACCEPT} size="sm" variant="primary" icon={<Upload />} loading={state.busy !== null} disabled={state.locked} onPick={(files) => void actions.importMedia(files)}>
+            Import files
+          </FilesPickButton>
+        </div>
+      ) : (
+        <LivePreview
+          projectId={state.projectId}
+          controllerRef={actions.preview}
+          bundle={liveBundle}
+          aspect={state.timeline.aspect}
+          chrome="monitor"
+          timeStore={state.timeStore}
+          loopRange={loopRange}
+          onPlayingChange={undefined}
+          frameOverlay={safe ? <SafeAreas portrait={portrait} /> : null}
+          className="min-h-0 flex-1"
+        />
+      )}
       <div className="shrink-0 border-t border-ed-line bg-ed-panel-2">
         <div className="flex h-5 items-center px-3 font-timecode text-[13px]">
           <span className="text-accent-text">{timecode(time, state.fps)}</span>

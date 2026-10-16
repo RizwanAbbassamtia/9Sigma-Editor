@@ -157,7 +157,7 @@ export function TopBar() {
           <BarButton title="Open the edit's folder" onClick={() => openFolder.mutate({ id: state.projectId }, { onError: (error) => actions.notify("error", "Could not open the folder", errorMessage(error)) })}>
             <FolderOpen className="size-4" aria-hidden />
           </BarButton>
-          <BarButton title="Render (Ctrl+E)" primary onClick={() => setRenderOpen((v) => !v)} pressed={renderOpen}>
+          <BarButton title={state.timeline.scenes.length === 0 ? "Add a picture or clip first" : "Render (Ctrl+E)"} primary disabled={state.timeline.scenes.length === 0} onClick={() => setRenderOpen((v) => !v)} pressed={renderOpen}>
             <Clapperboard className="size-4" aria-hidden />
             {renderLabel}
             <ChevronDown className="size-3.5" aria-hidden />

@@ -136,10 +136,14 @@ export interface AddSceneOptions {
   after?: number;
 }
 
-/** `POST /api/edits/{id}/scenes`: a new scene from a picture or clip file. */
-export function addScene(id: string, file: File, options: AddSceneOptions = {}): Promise<EditedPayload> {
+/**
+ * `POST /api/edits/{id}/scenes`: a new scene from a picture or clip: an upload (`File`) or a
+ * file of the library (its path, `01_media/...`).
+ */
+export function addScene(id: string, source: File | string, options: AddSceneOptions = {}): Promise<EditedPayload> {
   const body = new FormData();
-  body.append("file", file, file.name);
+  if (typeof source === "string") body.append("media", source);
+  else body.append("file", source, source.name);
   if (options.caption) body.append("caption", options.caption);
   if (options.keep_sound) body.append("keep_sound", "true");
   if (options.after !== undefined) body.append("after", String(options.after));

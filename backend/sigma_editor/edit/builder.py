@@ -7,6 +7,11 @@ reorder scenes (the sentences move with them), remove a scene, and the rebuild o
 timeline after the timing tool moved a sentence. Every rebuild goes through
 ``render/timeline_builder.py`` (the engine's own builder), then the voice track is laid out
 from the timing document (:func:`~.timing_doc.voice_segments_of`).
+
+v0.2 (docs/CONTRACT-v0.2.md): an empty project (:func:`create_blank_edit`), a scene added
+from a file already in the library (not copied again), the narration set later
+(:func:`set_narration`), and the rebuild carrying over what the timeline knows and the scene
+plan does not (a scene's clip, frame and adjust; the layers and the sound tracks).
 """
 
 from __future__ import annotations
@@ -44,8 +49,10 @@ from ..models.storyboard import (
     SceneTransition,
     StoryboardDoc,
 )
-from ..models.timeline import Timeline, VoiceTrack
+from ..models.timeline import ClipSource, ProxySize, Timeline, TimelineCaptions, VoiceTrack
+from ..models.timing import TimingDoc
 from ..render import ffmpeg as ff
+from ..render.captions import caption_style_for
 from ..render.presets import load_render_config
 from ..render.timeline_builder import (
     BuildRequest,
@@ -67,13 +74,13 @@ from .caption_files import CaptionFileError, read_caption_file
 from .renderer import allowed_presets, options_from, read_state, read_timeline, write_timeline
 from .timing_doc import (
     TIMING_FILE,
-    TimingDoc,
     TimingError,
     estimated_timing,
     read_timing,
     reordered,
     scene_timing,
     timing_from_cues,
+    to_timing_doc,
     voice_segments_of,
     write_timing,
 )
@@ -119,6 +126,24 @@ class SceneSource:
     clip_duration_s: float | None = None
     caption: str = ""
     keep_sound: bool = False
+    speed: float = 1.0
+    """Clips: how fast the clip plays (the scene plan does not keep it; the timeline does)."""
+    length_s: float | None = None
+    """The length the person chose for the scene (an edit without narration keeps it)."""
+
+
+def scene_lengths(sources: list[SceneSource]) -> list[float]:
+    """The clock of an edit without narration: each scene's chosen length, else its clip's
+    length (at its speed), else :data:`PICTURE_SECONDS`."""
+    out: list[float] = []
+    for source in sources:
+        if source.length_s and source.length_s > 0:
+            out.append(float(source.length_s))
+        elif source.clip_rel and source.clip_duration_s:
+            out.append(float(source.clip_duration_s) / max(float(source.speed or 1.0), 0.01))
+        else:
+            out.append(PICTURE_SECONDS)
+    return out
 
 
 # Files -----------------------------------------------------------------------------------------
@@ -215,8 +240,11 @@ def import_item(
             caption=form_item.caption if form_item else "",
         )
     if kind == "clip":
-        original = unique_path(folder / MEDIA_DIR, safe_file_name(item.name, fallback="clip"))
-        _copy(item.path, original)
+        if _in_library(folder, item.path):
+            original = Path(item.path)  # already in the library: used in place
+        else:
+            original = unique_path(folder / MEDIA_DIR, safe_file_name(item.name, fallback="clip"))
+            _copy(item.path, original)
         duration = clip_length(original)
         poster = folder / IMAGES_DIR / f"scene_{number:02d}{POSTER_SUFFIX}"
         poster_frame(original, poster, settings=settings, duration_s=duration)
@@ -232,6 +260,13 @@ def import_item(
         f"{item.name} is not a picture or a clip. Use png, jpg or webp pictures and mp4 or "
         "mov clips."
     )
+
+
+def _in_library(folder: Path, path: Path) -> bool:
+    try:
+        return (folder / MEDIA_DIR).resolve() in Path(path).resolve().parents
+    except (OSError, RuntimeError):
+        return False
 
 
 def import_narration(folder: Path, narration: IncomingFile | None, *, settings: Any,
@@ -310,9 +345,18 @@ def make_timing(
     except TimingError as exc:
         raise BuildError(str(exc)) from exc
     if narration_s:
-        share = narration_s / max(len(sources), 1)
-        return scene_timing([share] * len(sources), language=language)
+        return shared_timing(narration_s, len(sources), language=language)
     return scene_timing(lengths, language=language)
+
+
+def shared_timing(narration_s: float, count: int, *, language: str = "") -> TimingDoc:
+    """A narration without any text: its length shared evenly between the scenes (one empty
+    sentence each). The source is ``estimated`` (not ``scenes``), so a later Add or Remove
+    keeps the recording instead of writing a silent one over it."""
+    count = max(int(count), 1)
+    share = max(float(narration_s), 0.1) / count
+    timing = scene_timing([share] * count, language=language)
+    return timing.model_copy(update={"source": "estimated"})
 
 
 def assign_sentences(count: int, sentence_ids: list[str]) -> list[list[str]]:
@@ -517,6 +561,7 @@ def build_edit_timeline(
     segments = voice_segments_of(timing)
     timeline.voice = VoiceTrack(path=f"{VOICE_DIR}/{VOICE_FILE}", start_s=0.0,
                                 segments=segments or None)
+    _carry_over(timeline, plan, keep)
     if keep is not None:
         if keep.music.path and timeline.music.path:
             timeline.music.gain_db = keep.music.gain_db
@@ -530,6 +575,34 @@ def build_edit_timeline(
         timeline.music.license_ok = True
         warnings[:] = [w for w in warnings if "licence file" not in w]
     return timeline, warnings
+
+
+def _carry_over(timeline: Timeline, plan: StoryboardDoc, keep: Timeline | None) -> None:
+    """What the engine's builder does not know (docs/CONTRACT-v0.2.md sections 3 and 4): a
+    scene's clip (from the plan, with the person's in point, speed and sound choices from the
+    saved timeline when it is the same clip), its frame and colour adjust (from the saved
+    timeline, matched by picture), and the layers and sound tracks (from the saved timeline)."""
+    by_image: dict[str, Any] = {}
+    for old in (keep.scenes if keep is not None else []):
+        by_image.setdefault(old.image, old)
+    planned = {scene.index: scene for scene in plan.scenes}
+    for scene in timeline.scenes:
+        old = by_image.get(scene.image)
+        plan_scene = planned.get(scene.index)
+        if plan_scene is not None and plan_scene.clip:
+            if old is not None and old.clip is not None and old.clip.path == plan_scene.clip:
+                scene.clip = old.clip.model_copy()
+            else:
+                scene.clip = ClipSource(
+                    path=plan_scene.clip, keep_sound=plan_scene.keep_sound,
+                    duration_s=plan_scene.clip_duration_s,
+                )
+        if old is not None:
+            scene.frame = old.frame.model_copy() if old.frame is not None else None
+            scene.adjust = old.adjust.model_copy() if old.adjust is not None else None
+    if keep is not None:
+        timeline.layers = [layer.model_copy(deep=True) for layer in keep.layers]
+        timeline.audio_tracks = [track.model_copy(deep=True) for track in keep.audio_tracks]
 
 
 def rebuild_timeline(
@@ -604,6 +677,67 @@ def create_edit(
     return project, warnings
 
 
+def empty_timeline(project: Project, settings: Any) -> Timeline:
+    """A timeline with no scenes: the frame size and sizes of the Settings, the caption look,
+    the voice path (docs/CONTRACT-v0.2.md section 1)."""
+    config = load_render_config()
+    options = options_from(settings)
+    presets = allowed_presets(list(options.presets), config, options.enable_4k, [])
+    first = config.presets.get(presets[0] if presets else "1080p") or config.presets["1080p"]
+    aspect = aspect_of(project.format)
+    width, height = first.size(aspect)
+    proxy = config.proxy.size(aspect)
+    style = caption_style_for(project.language, options.caption_style, options.caption_preset)
+    return Timeline(
+        project_id=project.id,
+        format=project.format,
+        aspect=aspect,  # type: ignore[arg-type]
+        fps=config.fps,
+        width=width,
+        height=height,
+        duration_s=0.0,
+        voice=VoiceTrack(path=f"{VOICE_DIR}/{VOICE_FILE}", start_s=0.0, segments=None),
+        scenes=[],
+        captions=TimelineCaptions(enabled=options.captions_enabled, style=style, cues=[]),
+        presets=presets,
+        proxy=ProxySize(width=proxy[0], height=proxy[1]),
+    )
+
+
+def create_blank_edit(
+    store: ProjectStore, settings: Any, *, name: str, fmt: str, language: str,
+) -> Project:
+    """An empty project, like CapCut's Create project: the folder, an empty scene plan and
+    timing, a second of silence as the voice, and a timeline with no scenes."""
+    project = store.create(
+        " ".join(name.split()) or "Untitled", format=fmt, language=language,
+    )
+    folder = Path(project.folder)
+    render = getattr(settings, "render", None)
+    pack = str(getattr(render, "transition_pack", "cinematic") or "cinematic")
+    try:
+        write_silent_voice(folder, 1.0)
+        write_timing(folder / VOICE_DIR / TIMING_FILE,
+                     to_timing_doc([], 1.0, source="scenes", language=language))
+        write_scene_plan(folder, StoryboardDoc(
+            project_id=project.id, format=project.format,
+            aspect=aspect_of(project.format),  # type: ignore[arg-type]
+            transition_pack=pack,  # type: ignore[arg-type]
+            motion_style=getattr(render, "motion_style", None),
+            generated_at=datetime.now(UTC), scenes=[],
+        ))
+        write_timeline(folder / EDIT_DIR, empty_timeline(project, settings))
+    except (BuildError, OSError) as exc:
+        project.status = "failed"
+        project.status_note = str(exc)
+        store.save(project)
+        raise BuildError(str(exc)) from exc
+    project.status = "new"
+    project.status_note = ""
+    store.save(project)
+    return project
+
+
 # Scene changes -----------------------------------------------------------------------------------
 
 
@@ -616,12 +750,17 @@ def _timing_and_plan(project: Project) -> tuple[StoryboardDoc, TimingDoc]:
     return plan, timing
 
 
-def _sources_of(plan: StoryboardDoc) -> list[SceneSource]:
+def _sources_of(plan: StoryboardDoc, keep: Timeline | None = None) -> list[SceneSource]:
+    speeds: dict[str, float] = {}
+    for scene in (keep.scenes if keep is not None else []):
+        if scene.clip is not None:
+            speeds.setdefault(scene.image, scene.clip.speed)
     return [
         SceneSource(
             index=scene.index, image_rel=scene.image.path or "", clip_rel=scene.clip,
             clip_duration_s=scene.clip_duration_s, caption=scene.popup.text or "",
-            keep_sound=scene.keep_sound,
+            keep_sound=scene.keep_sound, speed=speeds.get(scene.image.path or "", 1.0),
+            length_s=scene.est_duration_s if scene.est_duration_s > 0 else None,
         )
         for scene in plan.scenes
     ]
@@ -630,7 +769,8 @@ def _sources_of(plan: StoryboardDoc) -> list[SceneSource]:
 def _renumber(sources: list[SceneSource]) -> list[SceneSource]:
     return [
         SceneSource(index=i, image_rel=s.image_rel, clip_rel=s.clip_rel,
-                    clip_duration_s=s.clip_duration_s, caption=s.caption, keep_sound=s.keep_sound)
+                    clip_duration_s=s.clip_duration_s, caption=s.caption, keep_sound=s.keep_sound,
+                    speed=s.speed, length_s=s.length_s)
         for i, s in enumerate(sources)
     ]
 
@@ -664,7 +804,7 @@ def add_scene(
     Without narration text the clock grows by the new scene's length."""
     plan, timing = _timing_and_plan(project)
     folder = Path(project.folder)
-    sources = _sources_of(plan)
+    sources = _sources_of(plan, read_timeline(folder / EDIT_DIR))
     new = import_item(
         folder, len(sources), item, EditItem(file=item.name, caption=options.caption,
                                              keep_sound=options.keep_sound),
@@ -674,11 +814,7 @@ def add_scene(
     sources.insert(at, new)
     sources = _renumber(sources)
     if timing.source == "scenes":
-        lengths = [
-            s.clip_duration_s if s.clip_rel and s.clip_duration_s else PICTURE_SECONDS
-            for s in sources
-        ]
-        timing = scene_timing(lengths, language=project.language)
+        timing = scene_timing(scene_lengths(sources), language=project.language)
         write_silent_voice(folder, timing.duration_s)
     return _finish_scene_change(project, store, settings, plan, sources, timing)
 
@@ -763,17 +899,62 @@ def remove_scene(
         scene.index = position_now
     sources = _renumber(sources)
     if timing.source == "scenes":
-        lengths = [
-            s.clip_duration_s if s.clip_rel and s.clip_duration_s else PICTURE_SECONDS
-            for s in sources
-        ]
-        timing = scene_timing(lengths, language=project.language)
+        timing = scene_timing(scene_lengths(sources), language=project.language)
         write_silent_voice(folder, timing.duration_s)
     try:
         if gone.image_rel and (folder / gone.image_rel).is_file():
             (folder / gone.image_rel).unlink()
     except OSError:
         pass
+    return _finish_scene_change(project, store, settings, plan, sources, timing)
+
+
+def _text_of(timing: TimingDoc | None) -> str:
+    """The caption text the timing carries (paragraphs kept), or an empty string."""
+    if timing is None:
+        return ""
+    paragraphs: dict[int, list[str]] = {}
+    for sentence in timing.sentences:
+        text = " ".join(sentence.text.split())
+        if text:
+            paragraphs.setdefault(sentence.paragraph, []).append(text)
+    return "\n\n".join(" ".join(lines) for _, lines in sorted(paragraphs.items()))
+
+
+def set_narration(
+    project: Project, store: ProjectStore, settings: Any, narration: IncomingFile,
+    *, caption_text: str = "", timing: TimingDoc | None = None,
+    cancel: threading.Event | None = None,
+) -> tuple[Timeline, list[str]]:
+    """Give the edit its narration later (docs/CONTRACT-v0.2.md section 2): the recording is
+    converted as in v0.1 and the timing is made again over its length: ``timing`` when the
+    caller has exact times (the AI voice), else the caption text given here, else the text
+    the edit already had, else the narration shared evenly between the scenes."""
+    folder = Path(project.folder)
+    plan = read_scene_plan(folder)
+    if plan is None:
+        raise BuildError("This edit has no scene plan yet. Add pictures or clips first.")
+    old_timing = read_timing(folder / VOICE_DIR / TIMING_FILE)
+    narration_s = import_narration(folder, narration, settings=settings, cancel=cancel)
+    if narration_s is None:
+        raise BuildError("Choose a sound file for the narration.")
+    if timing is None:
+        text = " ".join(caption_text.split("\r")).strip() or _text_of(old_timing)
+        try:
+            if text.strip():
+                timing = estimated_timing(text, narration_s, language=project.language)
+            else:
+                timing = shared_timing(narration_s, len(plan.scenes), language=project.language)
+        except TimingError as exc:
+            raise BuildError(str(exc)) from exc
+    sources = _sources_of(plan, read_timeline(folder / EDIT_DIR))
+    if not sources:
+        write_timing(folder / VOICE_DIR / TIMING_FILE, timing)
+        timeline = read_timeline(folder / EDIT_DIR) or empty_timeline(project, settings)
+        timeline.revision += 1
+        write_timeline(folder / EDIT_DIR, timeline)
+        store.save(project)
+        return timeline, ["The narration is in. Add pictures or clips to put scenes over it."]
     return _finish_scene_change(project, store, settings, plan, sources, timing)
 
 
@@ -832,6 +1013,9 @@ def sync_plan_from_timeline(project: Project, timeline: Timeline) -> None:
             index=position,
             sentence_ids=sentence_ids or ["s-001"],
             narration=old.narration if old else "",
+            est_start_s=round(cut.start_s, 3),
+            est_end_s=round(cut.end_s, 3),
+            est_duration_s=round(cut.end_s - cut.start_s, 3),
             image_prompt=old.image_prompt if old else "",
             popup=ScenePopup(
                 text=popup.text if popup is not None and popup.text.strip() else None,
@@ -854,9 +1038,14 @@ def sync_plan_from_timeline(project: Project, timeline: Timeline) -> None:
             locked=old.locked if old else SceneLocks(),
             notes=list(old.notes) if old else [],
             title=old.title if old else "",
-            clip=old.clip if old else None,
-            clip_duration_s=old.clip_duration_s if old else None,
-            keep_sound=old.keep_sound if old else False,
+            clip=cut.clip.path if cut.clip is not None else (old.clip if old else None),
+            clip_duration_s=(
+                cut.clip.duration_s if cut.clip is not None and cut.clip.duration_s
+                else (old.clip_duration_s if old else None)
+            ),
+            keep_sound=cut.clip.keep_sound if cut.clip is not None else (
+                old.keep_sound if old else False
+            ),
             edited=sorted(kept | {"motion", "transition_out", "popup", "sentence_ids", "image"}),
         )
         scenes.append(scene)

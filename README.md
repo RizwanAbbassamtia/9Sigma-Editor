@@ -3,7 +3,7 @@
 A standalone Windows desktop editor for narrated picture-and-clip videos: live preview,
 cinematic transitions, captions, music, and high-quality renders. No sign-in to any online
 service; everything stays on the computer. Plan: docs/PLAN.md. Current contract:
-docs/CONTRACT-v0.1.md. Installing and using it: docs/INSTALL.md.
+docs/CONTRACT-v0.2.md (on top of docs/CONTRACT-v0.1.md). Installing and using it: docs/INSTALL.md.
 
 ## Working on the code
 

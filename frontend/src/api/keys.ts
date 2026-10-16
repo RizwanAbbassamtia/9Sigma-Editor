@@ -19,4 +19,8 @@ export const queryKeys = {
   timing: (id: string) => ["projects", "detail", id, "timing"] as const,
   captions: (id: string) => ["projects", "detail", id, "captions"] as const,
   renderStatus: (id: string) => ["projects", "detail", id, "render-status"] as const,
+  /** v0.2: the media library of one edit */
+  media: (id: string) => ["projects", "detail", id, "media"] as const,
+  voiceStatus: ["voice", "status"] as const,
+  voices: ["voice", "voices"] as const,
 };

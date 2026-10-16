@@ -23,6 +23,15 @@ The music is ``07_edit/music_ducked.wav`` (``render/music.py``): already offset,
 faded and dipped under the voice, so the graph only mixes it; the stem is made (or found
 current) just before the assembly pass. ``sidechaincompress`` is no longer used.
 
+9Sigma Editor v0.2 (docs/CONTRACT-v0.2.md section 6) adds to the assembly pass, between the
+joined clips and the popups, each scene's colour adjust (``eq`` enabled for the scene's
+frames) and the layers (every visible layer clip is an input: a picture looped for its
+length, a clip from ``in_s`` at ``speed``; fitted by :func:`frame_fit_parts`, placed by
+:func:`frame_place_exprs` and laid over for its time), and to the audio graph the extra
+sounds of :func:`extra_sounds` (a clip scene's or layer clip's own sound, the sound tracks),
+each cut at the input, retimed, faded and placed, summed and mixed under the voice and the
+music before ``loudnorm``. Without any of them the graph is the v0.1 graph.
+
 :func:`build_plan` is pure: it works out the frame layout and writes the assembly graph,
 which goes to FFmpeg as a file (``-/filter_complex <file>``, FFmpeg 7+) so an 80-scene
 video never hits the Windows command-line limit. Progress comes from ``-progress pipe:1``;
@@ -49,7 +58,7 @@ from typing import Any
 
 from PIL import Image, UnidentifiedImageError
 
-from ..models.timeline import Timeline, TimelinePopup
+from ..models.timeline import ColourAdjust, FrameAdjust, Timeline, TimelinePopup
 from .fonts import fonts_dir
 from .presets import RenderConfig, RenderPreset
 
@@ -601,6 +610,243 @@ def resolve_path(folder: Path, value: str) -> Path:
     return path if path.is_absolute() else Path(folder) / path
 
 
+# Frames, colour and extra sounds (docs/CONTRACT-v0.2.md sections 4 and 6) ---------------------
+
+HOLD_LAST_FRAME_S = 600
+"""How long a clip's last frame is held when the clip runs out before its scene ends."""
+TO_YUVA = (
+    "scale=out_color_matrix=bt709:out_range=tv:flags=bicubic+accurate_rnd,format=yuva420p"
+)
+"""An rgba layer back to limited-range BT.709 (with its alpha) before it is laid over the
+scenes: the conversion ``overlay`` would insert on its own assumes BT.601."""
+
+
+def even(value: float) -> int:
+    """The nearest even number of pixels (at least 2)."""
+    return max(2, int(round(float(value) / 2.0)) * 2)
+
+
+def eq_filter(adjust: ColourAdjust) -> str:
+    """``eq`` for a colour adjust: brightness as it is (-1 to 1), contrast and saturation
+    around 1 (unchanged)."""
+    return (
+        f"eq=brightness={fmt(adjust.brightness)}:contrast={fmt(1.0 + adjust.contrast)}"
+        f":saturation={fmt(1.0 + adjust.saturation)}"
+    )
+
+
+def _shifted(centre: str, shift: float) -> str:
+    if abs(shift) < 0.05:
+        return centre
+    return f"{centre}{'+' if shift > 0 else '-'}{fmt(abs(shift))}"
+
+
+def frame_place_exprs(frame: FrameAdjust, size: tuple[int, int]) -> tuple[str, str]:
+    """The ``x`` and ``y`` of ``overlay`` that put a fitted picture where ``frame`` says:
+    centred in the frame, moved by ``frame.x`` of the width and ``frame.y`` of the height
+    (positive = to the right and down)."""
+    width, height = size
+    return _shifted("(W-w)/2", frame.x * width), _shifted("(H-h)/2", frame.y * height)
+
+
+def frame_fit_parts(
+    source: str,
+    out: str,
+    frame: FrameAdjust,
+    size: tuple[int, int],
+    *,
+    scale_flags: str,
+    adjust: ColourAdjust | None = None,
+    tag: str = "fit",
+) -> list[str]:
+    """The graph parts that fit the picture or clip on ``source`` (a label such as
+    ``[2:v]``) into a frame of ``size`` as ``frame`` says: the crop, the flips, the scale
+    to the fit (``cover`` fills the frame, ``contain`` fits inside it) times
+    ``frame.scale`` (even sizes), the colour ``adjust`` (``eq``, the alpha kept), the
+    rotation (clockwise, on a see-through canvas that holds the whole picture) and the
+    opacity. Ends on ``out`` as an rgba picture of its own size, not placed yet
+    (:func:`frame_place_exprs` says where). ``tag`` names the labels inside."""
+    width, height = size
+    steps: list[str] = []
+    left, top, right, bottom = (float(v) for v in frame.crop)
+    if any((left, top, right, bottom)):
+        steps.append(
+            f"crop=iw*{fmt(1.0 - left - right)}:ih*{fmt(1.0 - top - bottom)}"
+            f":iw*{fmt(left)}:ih*{fmt(top)}"
+        )
+    if frame.flip_h:
+        steps.append("hflip")
+    if frame.flip_v:
+        steps.append("vflip")
+    ratio = "increase" if frame.fit == "cover" else "decrease"
+    steps.append(
+        f"scale={even(width * frame.scale)}:{even(height * frame.scale)}"
+        f":force_original_aspect_ratio={ratio}:force_divisible_by=2:flags={scale_flags}"
+    )
+    tail: list[str] = []
+    if frame.rotation:
+        radians = fmt(math.radians(frame.rotation))
+        tail.append(f"rotate={radians}:c=black@0:ow=rotw({radians}):oh=roth({radians})")
+    if frame.opacity < 1.0:
+        tail.append(f"colorchannelmixer=aa={fmt(frame.opacity)}")
+    if adjust is None or adjust.is_default:
+        return [f"{source}{','.join([*steps, 'format=rgba', *tail])}{out}"]
+    # eq works on yuv planes without alpha: the alpha is taken off, kept and put back.
+    return [
+        f"{source}{','.join([*steps, 'format=rgba'])},split[{tag}c][{tag}a]",
+        f"[{tag}a]alphaextract[{tag}m]",
+        f"[{tag}c]format=yuv444p,{eq_filter(adjust)},format=rgba[{tag}e]",
+        f"[{tag}e][{tag}m]{','.join(['alphamerge', *tail])}{out}",
+    ]
+
+
+def scene_adjust_filters(timeline: Timeline, frames_plan: Any) -> list[str]:
+    """``eq`` for every scene with a colour adjust, enabled for that scene's frames (the
+    window starts and ends half a frame off the boundaries, so a frame on a boundary falls
+    on one side only). ``frames_plan`` is the :func:`~.assembly.frame_layout`."""
+    fps = int(timeline.fps)
+    filters: list[str] = []
+    for scene in timeline.scenes:
+        adjust = scene.adjust
+        if adjust is None or adjust.is_default or scene.index >= len(frames_plan.starts):
+            continue
+        start = frames_plan.starts[scene.index]
+        length = frames_plan.lengths[scene.index]
+        if length <= 0:
+            continue
+        first, last = (start - 0.5) / fps, (start + length - 0.5) / fps
+        filters.append(
+            f"{eq_filter(adjust)}:enable='between(t\\,{fmt(first)}\\,{fmt(last)})'"
+        )
+    return filters
+
+
+def atempo_chain(speed: float) -> list[str]:
+    """``atempo`` steps that play sound at ``speed``: one step from 0.5x up (``atempo``
+    takes 0.5 to 100), halvings and the rest below that; none at 1x."""
+    speed = float(speed)
+    if abs(speed - 1.0) < 1e-6:
+        return []
+    steps: list[str] = []
+    while speed < 0.5 - 1e-9:
+        steps.append("atempo=0.5")
+        speed /= 0.5
+    steps.append(f"atempo={fmt(speed)}")
+    return steps
+
+
+@dataclass(frozen=True)
+class ExtraSound:
+    """A sound mixed under the voice besides the music: a clip scene's or a layer clip's own
+    sound, or a clip of a sound track. The file is cut at the input (``-ss in_s -t
+    length_s * speed``) and :meth:`chain` retimes, fades and places it."""
+
+    file: Path
+    what: str
+    """Plain words for messages: "The clip walk.mp4 of scene 2", "The sound file rain.mp3"."""
+    in_s: float
+    speed: float
+    gain_db: float
+    start_s: float
+    length_s: float
+    fade_in_s: float = 0.0
+    fade_out_s: float = 0.0
+    is_clip: bool = False
+    """A video clip (its sound is used only when the file has a sound stream)."""
+
+    def input_args(self) -> list[str]:
+        return ["-ss", fmt(self.in_s), "-t", fmt(self.length_s * self.speed), "-i", str(self.file)]
+
+    def key_values(self) -> list[float]:
+        return [self.in_s, self.speed, self.gain_db, self.start_s, self.length_s,
+                self.fade_in_s, self.fade_out_s]
+
+    def chain(self, source: str, out: str, *, rate: int, total_s: float) -> str:
+        """The stream on ``source`` as one chain on ``out``: stereo at ``rate``, at the
+        speed, at the gain, faded, exactly ``length_s`` long, placed at ``start_s`` (in
+        samples) and padded or cut to ``total_s`` (the scenes' length), so it mixes sample
+        for sample with the voice."""
+        length = float(self.length_s)
+        steps = [
+            f"aformat=sample_fmts=fltp:sample_rates={rate}:channel_layouts=stereo",
+            "asetpts=PTS-STARTPTS",
+            *atempo_chain(self.speed),
+        ]
+        if self.gain_db:
+            steps.append(f"volume={fmt(self.gain_db)}dB")
+        fade_in = min(max(float(self.fade_in_s), 0.0), length)
+        fade_out = min(max(float(self.fade_out_s), 0.0), length)
+        if fade_in > 0:
+            steps.append(f"afade=t=in:st=0:d={fmt(fade_in)}")
+        if fade_out > 0:
+            steps.append(f"afade=t=out:st={fmt(length - fade_out)}:d={fmt(fade_out)}")
+        steps.append(f"atrim=0:{fmt(length)}")
+        if self.start_s > 0:
+            steps.append(f"adelay=delays={int(round(self.start_s * rate))}S:all=1")
+        steps += [f"apad=whole_dur={fmt(total_s)}", f"atrim=0:{fmt(total_s)}"]
+        return f"{source}{','.join(steps)}{out}"
+
+
+def extra_sounds(timeline: Timeline, folder: Path, config: RenderConfig | Any) -> list[ExtraSound]:
+    """The sounds of a timeline besides the voice and the music, in mixing order: a clip
+    scene's own sound (``clip.keep_sound``, at the scene's place and speed), a visible
+    layer clip's own sound, and every clip of every sound track that is not muted. Clips
+    outside the scenes are left out, ones running past the end are cut there. Pure (the
+    files are not read)."""
+    from .assembly import frame_layout
+
+    if not timeline.scenes:
+        return []
+    frames_plan = frame_layout(timeline, config)
+    fps = int(timeline.fps)
+    scenes_s = frames_plan.total_frames / fps
+    folder = Path(folder)
+    sounds: list[ExtraSound] = []
+    for scene in timeline.scenes:
+        clip = scene.clip
+        if clip is None or not clip.keep_sound or scene.index >= len(frames_plan.starts):
+            continue
+        length = frames_plan.lengths[scene.index] / fps
+        if length <= 0:
+            continue
+        file = resolve_path(folder, clip.path)
+        sounds.append(ExtraSound(
+            file=file, what=f"The clip {file.name} of scene {scene.index + 1}",
+            in_s=clip.in_s, speed=clip.speed, gain_db=clip.gain_db,
+            start_s=frames_plan.starts[scene.index] / fps, length_s=length, is_clip=True,
+        ))
+    for layer in timeline.layers:
+        if not layer.visible:
+            continue
+        for clip in layer.clips:
+            if clip.kind != "clip" or not clip.keep_sound:
+                continue
+            length = min(float(clip.end_s), scenes_s) - float(clip.start_s)
+            if length < 1.0 / fps:
+                continue
+            file = resolve_path(folder, clip.source)
+            sounds.append(ExtraSound(
+                file=file, what=f"The layer clip {clip.name or file.name}", in_s=clip.in_s,
+                speed=clip.speed, gain_db=clip.gain_db, start_s=float(clip.start_s),
+                length_s=length, is_clip=True,
+            ))
+    for track in timeline.audio_tracks:
+        if track.muted:
+            continue
+        for clip in track.clips:
+            length = min(float(clip.end_s), scenes_s) - float(clip.start_s)
+            if length < 0.01:
+                continue
+            file = resolve_path(folder, clip.source)
+            sounds.append(ExtraSound(
+                file=file, what=f"The sound file {clip.name or file.name}", in_s=clip.in_s,
+                speed=clip.speed, gain_db=clip.gain_db + track.gain_db,
+                start_s=float(clip.start_s), length_s=length, fade_in_s=clip.fade_in_s,
+                fade_out_s=clip.fade_out_s,
+            ))
+    return sounds
+
+
 @dataclass(frozen=True)
 class PopupAsset:
     """A popup PNG rendered for one preset, with its place in the frame."""
@@ -751,8 +997,10 @@ def audio_graph(
     stem: Path | None = None,
 ) -> AudioGraph:
     """The voice track (whole file or sentence clips) mixed with the music ``stem`` (when
-    given), ``frames`` frames of the timeline long, ending in ``[mix]``. Raises
-    :class:`RenderError` when the voice file is missing."""
+    given), ``frames`` frames of the timeline long, ending in ``[mix]``; with extra sounds
+    (:func:`extra_sounds`: clip sound, sound tracks) those are summed and mixed under it,
+    ending in ``[mix2]`` (``graph.label`` says which). Raises :class:`RenderError` when the
+    voice file or a sound file is missing."""
     graph = AudioGraph()
     rate = config.audio_sample_rate
     aformat = f"aformat=sample_fmts=fltp:sample_rates={rate}:channel_layouts=stereo"
@@ -767,25 +1015,61 @@ def audio_graph(
         if timeline.voice.start_s > 0:
             voice_chain += f",adelay={int(round(timeline.voice.start_s * 1000))}:all=1"
         voice_chain += f",atrim=0:{fmt(scenes_s)},apad=whole_dur={fmt(scenes_s)}"
-        if stem is None:
-            graph.parts.append(f"{voice_chain}[mix]")
-            return graph
-        graph.parts.append(f"{voice_chain}[voice]")
+        graph.parts.append(f"{voice_chain}{'[mix]' if stem is None else '[voice]'}")
     else:
         graph.parts.extend(_segment_voice_chain(timeline, voice, voice_index, frames, config))
         if stem is None:
             graph.parts.append("[voice]anull[mix]")
-            return graph
-    graph.inputs.append(["-i", str(stem)])
-    stem_index = first_input + len(graph.inputs) - 1
-    graph.parts.append(
-        f"[{stem_index}:a]{aformat},atrim=0:{fmt(scenes_s)},asetpts=PTS-STARTPTS,"
-        f"apad=whole_dur={fmt(scenes_s)}[music]"
-    )
-    graph.parts.append(
-        "[voice][music]amix=inputs=2:duration=first:dropout_transition=0:normalize=0[mix]"
-    )
+    if stem is not None:
+        graph.inputs.append(["-i", str(stem)])
+        stem_index = first_input + len(graph.inputs) - 1
+        graph.parts.append(
+            f"[{stem_index}:a]{aformat},atrim=0:{fmt(scenes_s)},asetpts=PTS-STARTPTS,"
+            f"apad=whole_dur={fmt(scenes_s)}[music]"
+        )
+        graph.parts.append(
+            "[voice][music]amix=inputs=2:duration=first:dropout_transition=0:normalize=0[mix]"
+        )
+    _mix_extra_sounds(graph, timeline, folder, config, first_input=first_input,
+                      scenes_s=scenes_s)
     return graph
+
+
+def _mix_extra_sounds(
+    graph: AudioGraph,
+    timeline: Timeline,
+    folder: Path,
+    config: RenderConfig,
+    *,
+    first_input: int,
+    scenes_s: float,
+) -> None:
+    """Add the extra sounds (v0.2) to ``graph``: one input and one chain each, all summed
+    into ``[extra]`` and mixed with ``[mix]`` into ``[mix2]``. A clip without a sound
+    stream is skipped; a missing file raises :class:`RenderError`."""
+    usable: list[ExtraSound] = []
+    for sound in extra_sounds(timeline, folder, config):
+        if not sound.file.is_file():
+            raise RenderError(f"{sound.what} is missing: {sound.file}")
+        if sound.is_clip and not probe_media(sound.file).has_audio:
+            continue
+        usable.append(sound)
+    if not usable:
+        return
+    rate = config.audio_sample_rate
+    labels: list[str] = []
+    for number, sound in enumerate(usable):
+        graph.inputs.append(sound.input_args())
+        index = first_input + len(graph.inputs) - 1
+        label = "[extra]" if len(usable) == 1 else f"[x{number}]"
+        graph.parts.append(sound.chain(f"[{index}:a]", label, rate=rate, total_s=scenes_s))
+        labels.append(label)
+    if len(labels) > 1:
+        graph.parts.append(
+            f"{''.join(labels)}amix=inputs={len(labels)}:normalize=0:duration=longest[extra]"
+        )
+    graph.parts.append("[mix][extra]amix=inputs=2:normalize=0:duration=first[mix2]")
+    graph.label = "[mix2]"
 
 
 def _popup_exprs(
@@ -817,9 +1101,10 @@ def build_plan(
     x264_preset: str | None = None,
     fonts_folder: Path | None = None,
 ) -> RenderPlan:
-    """The clips to make and the assembly graph for one preset. Pure: nothing is run here
-    (the pictures' sizes and dates are read)."""
-    from .assembly import plan_layout
+    """The clips to make and the assembly graph for one preset. Pure but for reading the
+    pictures' sizes and dates and probing the intro, the outro and the clips whose own
+    sound is kept (to know whether they have one)."""
+    from .assembly import frame_layout, plan_layout
 
     folder = Path(folder)
     width, height = preset.size(timeline.aspect)
@@ -847,6 +1132,56 @@ def build_plan(
     parts.append(f"[0:v]{layout.select_filter()},setsar=1[base]")
     current = "[base]"
     scenes_s = layout.total_frames / fps
+
+    # v0.2 (docs/CONTRACT-v0.2.md section 6): each scene's colour adjust for its frames,
+    # then the layers, bottom layer first, each visible layer clip an input of its own.
+    adjusts = scene_adjust_filters(timeline, frame_layout(timeline, config))
+    if adjusts:
+        parts.append(f"{current}{','.join(adjusts)}[vadj]")
+        current = "[vadj]"
+    number = 0
+    for layer in timeline.layers:
+        if not layer.visible:
+            continue
+        for clip in layer.clips:
+            end = min(float(clip.end_s), scenes_s)
+            length = end - float(clip.start_s)
+            if length < 1.0 / fps:
+                continue
+            file = resolve_path(folder, clip.source)
+            if not file.is_file():
+                what = "picture" if clip.kind == "picture" else "clip"
+                raise RenderError(
+                    f"The layer {what} {clip.name or file.name} is missing: {file}"
+                )
+            if clip.kind == "picture":
+                plan.inputs.append(
+                    ["-loop", "1", "-framerate", str(fps), "-t", fmt(length), "-i", str(file)]
+                )
+                source = f"[{len(plan.inputs) - 1}:v]"
+            else:
+                plan.inputs.append(
+                    ["-ss", fmt(clip.in_s), "-t", fmt(length * clip.speed), "-i", str(file)]
+                )
+                parts.append(  # the last frame is held when the clip runs out early
+                    f"[{len(plan.inputs) - 1}:v]setpts=(PTS-STARTPTS)/{fmt(clip.speed)},"
+                    f"fps={fps},tpad=stop_mode=clone:stop_duration={fmt(length)}[ls{number}]"
+                )
+                source = f"[ls{number}]"
+            parts.extend(frame_fit_parts(
+                source, f"[lf{number}]", clip.frame, (width, height),
+                scale_flags=config.scale_flags, adjust=clip.adjust, tag=f"l{number}",
+            ))
+            parts.append(
+                f"[lf{number}]{TO_YUVA},setpts=PTS+{fmt(clip.start_s)}/TB[l{number}]"
+            )
+            x_expr, y_expr = frame_place_exprs(clip.frame, (width, height))
+            parts.append(
+                f"{current}[l{number}]overlay=x='{x_expr}':y='{y_expr}':eof_action=pass"
+                f":enable='between(t\\,{fmt(clip.start_s)}\\,{fmt(end)})'[vl{number}]"
+            )
+            current = f"[vl{number}]"
+            number += 1
 
     scale = min(width, height) / 1080.0
     for number, asset in enumerate(popups):
@@ -879,7 +1214,8 @@ def build_plan(
 
     # Audio: the voice track (the whole file, or its sentence clips), the music stem (made
     # by render/music.py just before the pass: offset, looped, faded, dipped under the
-    # voice) mixed under it, the loudness normalised.
+    # voice) mixed under it, the extra sounds (clip sound, sound tracks) under both, the
+    # loudness normalised.
     from .music import music_file, stem_paths
 
     rate = config.audio_sample_rate
@@ -891,7 +1227,7 @@ def build_plan(
     parts.extend(audio.parts)
     if stem is not None:
         plan.audio = AudioPlan(timeline=timeline, folder=folder, stem=stem)
-    parts.append(f"[mix]{loudnorm_filter(config)},{aformat}[amain]")
+    parts.append(f"{audio.label}{loudnorm_filter(config)},{aformat}[amain]")
 
     # Intro and outro clips around the scenes (optional).
     total = scenes_s

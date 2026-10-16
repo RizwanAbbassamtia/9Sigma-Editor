@@ -1,6 +1,7 @@
 """The editing routes of ``/api/edits`` that need the render engine (docs/CONTRACT-v0.1.md
 sections 3 to 5): New edit from files, the editor payload, the simple choices, the timeline
-autosave, scenes, captions, render, export and the renders list.
+autosave, scenes, captions, render, export and the renders list. v0.2 (docs/CONTRACT-v0.2.md
+sections 1 and 2) adds the empty project, the media library and the narration route.
 
 Mounted by ``app.py`` next to ``api/edits.py`` (the file-only routes). ``setup_app`` gives the
 app its render job runner (``edit/render_jobs.py``).
@@ -21,6 +22,7 @@ from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel, Field, ValidationError
 
 from ..edit import builder
+from ..edit import media as media_lib
 from ..edit.builder import BuildError, IncomingFile, NewEditFiles
 from ..edit.caption_files import ImportedCue, write_srt
 from ..edit.choices import EditError
@@ -40,6 +42,7 @@ from ..edit.renderer import (
     write_timeline,
 )
 from ..models.edit_input import EditInput, SceneFileInput, file_kind
+from ..models.media import BlankEditInput, MediaLibrary
 from ..models.project import Project, ProjectSummary
 from ..models.timeline import CaptionCue, EditChoices, Timeline
 from ..render.presets import presets_json, quality_for
@@ -53,6 +56,8 @@ router = APIRouter(prefix="/api", tags=["editing"])
 
 NO_TIMELINE = "This edit has no timeline yet. Add pictures or clips first."
 NOT_MEDIA = "Choose a picture (png, jpg, webp) or a clip (mp4, mov)."
+NOT_SOUND = "Choose a sound file (mp3, wav, m4a) for the narration."
+NO_FILE = "Choose a file, or name one from the library."
 TMP_DIR = "tmp"
 
 
@@ -181,6 +186,125 @@ async def create_edit(
     return project
 
 
+@router.post("/edits/blank", response_model=Project, status_code=201)
+async def create_blank_edit(
+    body: BlankEditInput, store: StoreDep, settings: SettingsDep
+) -> Project:
+    """An empty project (docs/CONTRACT-v0.2.md section 1): the Edit room opens on it and
+    the person imports media there."""
+    try:
+        return await asyncio.to_thread(
+            builder.create_blank_edit, store, settings, name=body.name, fmt=body.format,
+            language=body.language,
+        )
+    except BuildError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except (ProjectStoreError, OSError) as exc:
+        raise translate(exc) from exc
+
+
+# The media library (docs/CONTRACT-v0.2.md section 2) ----------------------------------------------
+
+
+def _library(project: Project, settings: Any) -> MediaLibrary:
+    return media_lib.list_library(project, settings, read_timeline(_stage_dir(project)))
+
+
+@router.get("/edits/{project_id}/media", response_model=MediaLibrary)
+async def list_media(project_id: str, store: StoreDep, settings: SettingsDep) -> MediaLibrary:
+    """Every picture, clip, sound and caption file in the edit's 01_media folder."""
+    project = await load_project(store, project_id)
+    return await asyncio.to_thread(_library, project, settings)
+
+
+@router.post("/edits/{project_id}/media", response_model=MediaLibrary)
+async def import_media(
+    project_id: str,
+    store: StoreDep,
+    settings: SettingsDep,
+    files: Annotated[list[UploadFile], File(description="pictures, clips, sound, captions")],
+) -> MediaLibrary:
+    """Import files into the library (copied as they are); answers the whole library."""
+    project = await load_project(store, project_id)
+    base, saved = await _save_uploads(settings, [("files", f) for f in files])
+    try:
+        await asyncio.to_thread(media_lib.import_files, project, settings, saved.get("files", []))
+    except media_lib.MediaError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except OSError as exc:
+        raise translate(exc) from exc
+    finally:
+        await asyncio.to_thread(_discard, base)
+    return await asyncio.to_thread(_library, project, settings)
+
+
+@router.delete("/edits/{project_id}/media", response_model=MediaLibrary)
+async def remove_media(
+    project_id: str, path: str, store: StoreDep, settings: SettingsDep, jobs: JobsDep
+) -> MediaLibrary:
+    """Remove a library file nothing uses (409 when the timeline uses it)."""
+    project = await load_project(store, project_id)
+    _refuse_while_rendering(jobs, project.id)
+
+    def work() -> MediaLibrary:
+        try:
+            media_lib.remove_file(project, read_timeline(_stage_dir(project)), path)
+        except media_lib.MediaInUse as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except media_lib.MediaError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        return _library(project, settings)
+
+    return await asyncio.to_thread(work)
+
+
+def _library_file(project: Project, media: str | None, kinds: tuple[str, ...], message: str
+                  ) -> IncomingFile:
+    """A library file named by its relative path, checked to be one of ``kinds``."""
+    try:
+        source = media_lib.library_path(project.folder, media or "")
+    except media_lib.MediaError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    if file_kind(source.name) not in kinds:
+        raise HTTPException(status_code=415, detail=message)
+    return IncomingFile(name=source.name, path=source)
+
+
+@router.post("/edits/{project_id}/narration", response_model=EditedPayload)
+async def set_narration(
+    project_id: str,
+    store: StoreDep,
+    settings: SettingsDep,
+    jobs: JobsDep,
+    file: Annotated[UploadFile | None, File()] = None,
+    media: Annotated[str | None, Form(description="a library file instead of an upload")] = None,
+    caption_text: Annotated[str, Form()] = "",
+) -> EditedPayload:
+    """Use a sound file as the narration (docs/CONTRACT-v0.2.md section 2): the timing is
+    estimated again over it, with ``caption_text`` when given."""
+    project = await load_project(store, project_id)
+    _refuse_while_rendering(jobs, project.id)
+    base: Path | None = None
+    if file is not None and (file.filename or "").strip():
+        if file_kind(file.filename or "") not in ("audio", "clip"):
+            raise HTTPException(status_code=415, detail=NOT_SOUND)
+        base, item = await _one_file(settings, file)
+    elif media:
+        item = _library_file(project, media, ("audio", "clip"), NOT_SOUND)
+    else:
+        raise HTTPException(status_code=422, detail=NO_FILE)
+    try:
+        _timeline, warnings = await asyncio.to_thread(
+            builder.set_narration, project, store, settings, item, caption_text=caption_text,
+        )
+    except BuildError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    finally:
+        if base is not None:
+            await asyncio.to_thread(_discard, base)
+    return _scene_result(project, settings, jobs, warnings)
+
+
 # The editor payload and the simple choices --------------------------------------------------------
 
 
@@ -278,17 +402,24 @@ async def add_scene(
     store: StoreDep,
     settings: SettingsDep,
     jobs: JobsDep,
-    file: Annotated[UploadFile, File()],
+    file: Annotated[UploadFile | None, File()] = None,
+    media: Annotated[str | None, Form(description="a library file instead of an upload")] = None,
     caption: Annotated[str, Form()] = "",
     keep_sound: Annotated[bool, Form()] = False,
     after: Annotated[int | None, Form()] = None,
 ) -> EditedPayload:
-    """Add a scene from a picture or clip file."""
+    """Add a scene from a picture or clip: an upload, or a file of the library (``media``)."""
     project = await load_project(store, project_id)
     _refuse_while_rendering(jobs, project.id)
-    if file_kind(file.filename or "") not in ("picture", "clip"):
-        raise HTTPException(status_code=415, detail=NOT_MEDIA)
-    base, item = await _one_file(settings, file)
+    base: Path | None = None
+    if file is not None and (file.filename or "").strip():
+        if file_kind(file.filename or "") not in ("picture", "clip"):
+            raise HTTPException(status_code=415, detail=NOT_MEDIA)
+        base, item = await _one_file(settings, file)
+    elif media:
+        item = _library_file(project, media, ("picture", "clip"), NOT_MEDIA)
+    else:
+        raise HTTPException(status_code=422, detail=NO_FILE)
     options = SceneFileInput(caption=caption, keep_sound=keep_sound, after=after)
     try:
         _timeline, warnings = await asyncio.to_thread(
@@ -297,7 +428,8 @@ async def add_scene(
     except BuildError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     finally:
-        await asyncio.to_thread(_discard, base)
+        if base is not None:
+            await asyncio.to_thread(_discard, base)
     return _scene_result(project, settings, jobs, warnings)
 
 

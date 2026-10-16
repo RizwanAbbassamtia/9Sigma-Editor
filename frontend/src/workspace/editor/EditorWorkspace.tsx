@@ -4,8 +4,10 @@ import { Navigate, useNavigate, useParams } from "react-router";
 
 import { useMe, useSessionEnded } from "../../api/auth";
 import { ApiError, errorMessage } from "../../api/client";
-import { useAddScene, useApplyEdits, useEditPayload, useNudgeTiming, useRefreshEdit, useRemoveScene, useReorderScenes, useReplaceScenePicture, useRenderStatus, useSaveTimeline } from "../../api/edit";
+import { useAddScene, useApplyEdits, useEditPayload, useNudgeTiming, useRefreshEdit, useRemoveScene, useReorderScenes, useReplaceScenePicture, useRenderStatus, useSaveTimeline, useSetNarration } from "../../api/edit";
 import { queryKeys } from "../../api/keys";
+import { useImportMedia, useMediaLibrary, useRemoveMedia } from "../../api/media";
+import { useMakeVoice, useVoiceStatus } from "../../api/voice";
 import { getMusicEnvelope, usePeaks, useRebuildMusicStem, useTimelineBundle } from "../../api/preview";
 import { useProject } from "../../api/projects";
 import { useRenderSettings } from "../../api/settings";
@@ -17,8 +19,9 @@ import { ConfirmDialog } from "../../components/ui/Dialog";
 import { LoadingBlock } from "../../components/ui/Spinner";
 import { EmptyState, ErrorState } from "../../components/ui/States";
 import { useToast } from "../../components/ui/Toast";
-import type { BundlePicture } from "../../types/preview";
+import type { BundlePicture, BundleSource } from "../../types/preview";
 import type { EditChoices, Timeline } from "../../types/timeline";
+import type { VoiceRequest, VoiceResult } from "../../types/voice";
 import { WorkspaceShell } from "../WorkspaceShell";
 import { EditorContext, type EditorActions, type EditorState, type SaveState } from "./context";
 import { History, NO_SELECTION, moveSceneEdge, sentenceStarts, snapTo, wordBoundaries, type Selection } from "./document";
@@ -75,6 +78,13 @@ function EditorLoaded({ projectId }: { projectId: string }) {
   const removeSceneMutation = useRemoveScene(projectId);
   const nudge = useNudgeTiming(projectId);
   const { mutate: prepareMusic, isPending: preparingMusic } = useRebuildMusicStem(projectId);
+  const mediaQuery = useMediaLibrary(projectId, payload !== null);
+  const importMediaMutation = useImportMedia(projectId);
+  const removeMediaMutation = useRemoveMedia(projectId);
+  const narrationMutation = useSetNarration(projectId);
+  const voiceStatus = useVoiceStatus();
+  const makeVoiceMutation = useMakeVoice(projectId);
+  const [busy, setBusy] = useState<string | null>(null);
 
   const envelopeUrl = bundleQuery.data?.media.envelope_url ?? null;
   const envelope = useQuery({
@@ -235,6 +245,7 @@ function EditorLoaded({ projectId }: { projectId: string }) {
 
   const sentences = bundleQuery.data?.sentences ?? [];
   const pictures = useMemo(() => new Map<number, BundlePicture>((bundleQuery.data?.pictures ?? []).map((picture) => [picture.scene, picture])), [bundleQuery.data]);
+  const sources = useMemo(() => new Map<string, BundleSource>((bundleQuery.data?.sources ?? []).map((source) => [source.path, source])), [bundleQuery.data]);
 
   const seek = useCallback((seconds: number, play?: boolean) => {
     preview.current?.seek(Math.max(0, seconds), play ? { play: true } : undefined);
@@ -259,14 +270,68 @@ function EditorLoaded({ projectId }: { projectId: string }) {
     toggleFollowPlayhead: () => setFollowPlayhead((v) => !v),
     preview,
     replacePicture: (index, file) => serverChange(() => replacePictureMutation.mutateAsync({ index, file }), `Scene ${index + 1} has its new picture`),
-    addScene: (file) => serverChange(() => addSceneMutation.mutateAsync({ file }), "Scene added at the end"),
+    addScene: (source, after, keepSound) => serverChange(() => addSceneMutation.mutateAsync({ file: source, options: { ...(after !== undefined ? { after } : {}), ...(keepSound ? { keep_sound: true } : {}) } }), after !== undefined ? `Scene added after scene ${after + 1}` : "Scene added at the end"),
     reorderScenes: (order) => serverChange(() => reorderMutation.mutateAsync(order), "Scenes reordered; the narration moved with them"),
     removeScene: (index) => serverChange(() => removeSceneMutation.mutateAsync(index), `Scene ${index + 1} removed`),
     shortenPause: (sentenceIndex, shift_s) => serverChange(() => nudge.mutateAsync({ index: sentenceIndex, shift_s }), `Pause shortened by ${Math.abs(shift_s).toFixed(1)} s; everything after it moved earlier`),
     applyChoices: (choices: EditChoices) => serverChange(() => apply.mutateAsync(choices), ""),
     rebuild: () => serverChange(() => apply.mutateAsync({ rebuild: true }), "The timeline was built again"),
+    importMedia: async (files) => {
+      if (files.length === 0) return;
+      setBusy(files.length === 1 ? `Importing ${files[0]!.name}...` : `Importing ${files.length} files...`);
+      try {
+        const library = await importMediaMutation.mutateAsync(files);
+        toast({ tone: "success", title: files.length === 1 ? `${files[0]!.name} is in the library` : `${files.length} files are in the library`, description: `${library.items.length} files in all.` });
+      } catch (error) {
+        toast({ tone: "error", title: "The files could not be imported", description: errorMessage(error) });
+      } finally {
+        setBusy(null);
+      }
+    },
+    removeMedia: async (path) => {
+      try {
+        await removeMediaMutation.mutateAsync(path);
+      } catch (error) {
+        toast({ tone: "error", title: "The file was not removed", description: errorMessage(error) });
+      }
+    },
+    setNarration: async (input) => {
+      setBusy("Setting the narration...");
+      try {
+        await serverChange(() => narrationMutation.mutateAsync(input), "The narration is in; the scenes and captions follow it");
+      } finally {
+        setBusy(null);
+      }
+    },
+    makeVoice: async (request: VoiceRequest): Promise<VoiceResult | null> => {
+      if (locked) {
+        toast({ tone: "info", title: "A render is running", description: "Stop it in the Render menu to change the edit." });
+        return null;
+      }
+      setBusy("Making the voice...");
+      try {
+        if (timer.current !== null && timeline) {
+          window.clearTimeout(timer.current);
+          timer.current = null;
+          await flushSave(timeline, serverRevision);
+        }
+        const result = await makeVoiceMutation.mutateAsync(request);
+        if (request.use === "narration") {
+          dirty.current = false;
+          history.current.clear();
+          setHistoryTick((v) => v + 1);
+          refresh();
+        }
+        return result;
+      } catch (error) {
+        toast({ tone: "error", title: "The voice could not be made", description: errorMessage(error) });
+        return null;
+      } finally {
+        setBusy(null);
+      }
+    },
     notify: (tone, title, description) => toast({ tone, title, description }),
-  }), [edit, undo, redo, seek, timeStore, timeline?.fps, serverChange, replacePictureMutation, addSceneMutation, reorderMutation, removeSceneMutation, nudge, apply, toast]);
+  }), [edit, undo, redo, seek, timeStore, timeline, serverChange, replacePictureMutation, addSceneMutation, reorderMutation, removeSceneMutation, nudge, apply, toast, importMediaMutation, removeMediaMutation, narrationMutation, makeVoiceMutation, locked, flushSave, serverRevision, refresh]);
 
   // ---- keyboard ----------------------------------------------------------------------------------
   useEffect(() => {
@@ -458,6 +523,10 @@ function EditorLoaded({ projectId }: { projectId: string }) {
     timeline,
     sentences,
     pictures,
+    sources,
+    media: mediaQuery.data ?? null,
+    timingSource: payload.timing_source,
+    voiceStatus: voiceStatus.data ?? null,
     voicePeaks: voicePeaks.data ?? null,
     musicPeaks: musicPeaks.data ?? null,
     envelope: envelope.data ?? null,
@@ -481,6 +550,7 @@ function EditorLoaded({ projectId }: { projectId: string }) {
     linkPopups,
     followPlayhead,
     timeStore,
+    busy,
   };
 
   return (

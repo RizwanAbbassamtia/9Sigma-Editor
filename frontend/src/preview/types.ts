@@ -6,6 +6,7 @@
  * own `types/timeline.ts` (it is framework-free). `PreviewBundle` is the body of
  * `GET /api/projects/{id}/timeline` (contract section 2).
  */
+import type { AdjustDesc, FrameDesc } from "./frame";
 import type { CameraTerms, MotionPath, Rect } from "./motion";
 import type { RGB } from "./transitions/common";
 import type { ResolvedTransition, TransitionCatalogue } from "./transitions/registry";
@@ -39,6 +40,57 @@ export interface PreviewScene {
   locked?: boolean;
   sentence_ids?: readonly string[];
   edited?: readonly string[];
+  /** v0.2: the clip the scene plays (the image is its poster frame) */
+  clip?: { path: string; in_s?: number; speed?: number; keep_sound?: boolean; gain_db?: number; duration_s?: number | null } | null;
+  /** v0.2: where a clip sits in the frame (null = fills it) */
+  frame?: unknown;
+  /** v0.2: colour */
+  adjust?: unknown;
+}
+
+/** v0.2: a picture or clip over the scenes. */
+export interface PreviewLayerClip {
+  id?: string;
+  source: string;
+  kind?: string;
+  name?: string;
+  start_s: number;
+  end_s: number;
+  in_s?: number;
+  speed?: number;
+  keep_sound?: boolean;
+  gain_db?: number;
+  duration_s?: number | null;
+  frame?: unknown;
+  adjust?: unknown;
+}
+
+export interface PreviewLayer {
+  id?: string;
+  name?: string;
+  visible?: boolean;
+  locked?: boolean;
+  clips?: readonly PreviewLayerClip[];
+}
+
+/** v0.2: a sound clip on a sound track. */
+export interface PreviewAudioClip {
+  id?: string;
+  source: string;
+  start_s: number;
+  end_s: number;
+  in_s?: number;
+  speed?: number;
+  gain_db?: number;
+  fade_in_s?: number;
+  fade_out_s?: number;
+}
+
+export interface PreviewAudioTrack {
+  id?: string;
+  muted?: boolean;
+  gain_db?: number;
+  clips?: readonly PreviewAudioClip[];
 }
 
 export interface PreviewPopup {
@@ -118,6 +170,20 @@ export interface PreviewTimeline {
   outro?: { path?: string | null } | null;
   markers?: readonly { id: string; t: number; label?: string; colour?: string; chapter?: boolean }[];
   render?: { preview_gain_db?: number | null } | null;
+  /** v0.2 */
+  layers?: readonly PreviewLayer[];
+  audio_tracks?: readonly PreviewAudioTrack[];
+}
+
+/** v0.2: a file a layer or sound clip (or a clip scene) plays, with what the preview needs. */
+export interface PreviewSource {
+  path: string;
+  kind?: string;
+  width?: number;
+  height?: number;
+  duration_s?: number | null;
+  thumb_url?: string | null;
+  url?: string;
 }
 
 export interface PreviewWord {
@@ -173,6 +239,8 @@ export interface PreviewBundle {
   cue_words?: Readonly<Record<string, readonly PreviewWord[]>>;
   /** additive: the gain loudnorm gives the mix, every `step_s` (measured for this sound) */
   preview_gain_curve?: { step_s: number; gain_db: readonly number[] } | null;
+  /** v0.2: the files of the layer and sound clips and the clip scenes */
+  sources?: readonly PreviewSource[];
 }
 
 // ---- settings (config/render.yaml defaults) -------------------------------------------------
@@ -237,6 +305,55 @@ export interface SceneDesc {
   path: MotionPath;
   style: "ken_burns" | "parallax";
   strength: number;
+  /** v0.2: the clip the scene plays, or null for a picture */
+  clip: SceneClipDesc | null;
+  /** v0.2: a clip's place in the frame (null = fills it) */
+  frame: FrameDesc | null;
+  /** v0.2: colour (null = as shot) */
+  adjust: AdjustDesc | null;
+}
+
+/** v0.2: a scene's clip (docs/CONTRACT-v0.2.md section 7). */
+export interface SceneClipDesc {
+  url: string;
+  inS: number;
+  speed: number;
+  keepSound: boolean;
+  gainDb: number;
+}
+
+/** v0.2: a layer clip, drawn over the scenes between `startS` and `endS`. */
+export interface LayerClipDesc {
+  key: string;
+  /** position of its layer, bottom layer first */
+  layer: number;
+  source: string;
+  url: string;
+  kind: "picture" | "clip";
+  startS: number;
+  endS: number;
+  inS: number;
+  speed: number;
+  keepSound: boolean;
+  gainDb: number;
+  frame: FrameDesc;
+  adjust: AdjustDesc | null;
+  /** the source's size when the bundle knows it */
+  size: [number, number] | null;
+}
+
+/** v0.2: a sound clip of a sound track. */
+export interface SoundClipDesc {
+  key: string;
+  url: string;
+  startS: number;
+  endS: number;
+  inS: number;
+  speed: number;
+  /** the clip's gain plus its track's */
+  gainDb: number;
+  fadeInS: number;
+  fadeOutS: number;
 }
 
 export interface CutDesc {
@@ -340,6 +457,10 @@ export interface RenderDescription {
   virtual: boolean;
   /** per cue key, its words with times (active-word and single-word looks) */
   cueWords: Map<string, PreviewWord[]>;
+  /** v0.2: the layer clips, bottom layer first, each layer's clips in time order */
+  layers: LayerClipDesc[];
+  /** v0.2: the sound clips of the tracks that are not muted */
+  sounds: SoundClipDesc[];
 }
 
 export interface SceneRef {

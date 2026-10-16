@@ -48,6 +48,7 @@ from ..models.timeline import (
     BundleMedia,
     BundlePicture,
     BundleSentence,
+    BundleSource,
     BundleWord,
     MusicStemResult,
     PeaksDoc,
@@ -236,6 +237,32 @@ def bundle_pictures(project_id: str, folder: Path, timeline: Timeline) -> list[B
     return pictures
 
 
+def bundle_sources(project: Project, folder: Path, timeline: Timeline) -> list[BundleSource]:
+    """v0.2: what the preview needs about every layer, sound and clip-scene file."""
+    from ..edit import media as media_lib
+    from ..models.edit_input import file_kind
+
+    sources: list[BundleSource] = []
+    for relative in timeline.source_files:
+        kind = file_kind(relative)
+        if kind == "other":
+            continue
+        info = media_lib.source_info(folder, None, relative)
+        thumb: str | None = None
+        if kind == "picture":
+            thumb = thumb_url(project.id, relative)
+        elif kind == "clip" and info.get("poster"):
+            thumb = file_url(project.id, str(info["poster"]))
+        sources.append(
+            BundleSource(
+                path=relative, kind=kind, width=int(info.get("width") or 0),
+                height=int(info.get("height") or 0), duration_s=info.get("duration_s"),
+                thumb_url=thumb, url=file_url(project.id, relative),
+            )
+        )
+    return sources
+
+
 def bundle_fonts() -> list[BundleFont]:
     folder = fonts_dir()
     return [
@@ -300,8 +327,13 @@ def build_bundle(project: Project, folder: Path, music_folder: str | None = None
     if timeline is None:
         raise HTTPException(status_code=404, detail=NO_TIMELINE)
     # the preview's sized pictures, made in the background before the preview asks for them
-    thumbs.prepare_in_background(folder, [scene.image for scene in timeline.scenes],
-                                 (int(timeline.width), int(timeline.height)))
+    layer_pictures = [
+        clip.source for layer in timeline.layers for clip in layer.clips if clip.kind == "picture"
+    ]
+    thumbs.prepare_in_background(
+        folder, [scene.image for scene in timeline.scenes] + layer_pictures,
+        (int(timeline.width), int(timeline.height)),
+    )
     loudness = audio.cached_preview_loudness(timeline, folder, load_render_config())
     gain = loudness.gain_db if loudness is not None else timeline.render.preview_gain_db
     curve = None
@@ -325,6 +357,7 @@ def build_bundle(project: Project, folder: Path, music_folder: str | None = None
             for cue, cue_words in zip(timeline.captions.cues, words, strict=True)
         },
         preview_gain_curve=curve,
+        sources=bundle_sources(project, folder, timeline),
     )
 
 

@@ -2,6 +2,7 @@
  * What a compositor draws each frame, shared by the WebGL2 one (gpu/compositor.ts, PixiJS 8) and
  * the Canvas 2D fallback (canvas2d/compositor.ts).
  */
+import type { AdjustDesc, FrameDesc } from "./frame";
 import type { ParallaxPlan } from "./parallax";
 import type { Picture } from "./pictures";
 import type { FrameState, SceneDesc } from "./types";
@@ -13,6 +14,24 @@ export interface SceneSource {
   missing: boolean;
   /** 2.5D parallax when the scene asks for it and its depth map is in */
   parallax: ParallaxPlan | null;
+  /** v0.2: the clip's video element with a frame ready (drawn instead of the picture) */
+  video?: HTMLVideoElement | null;
+  /** v0.2: a clip scene's place in the frame (null = fills it, the camera window applies) */
+  frame?: FrameDesc | null;
+}
+
+/** v0.2: one layer clip to draw over the scene (bottom layer first). */
+export interface LayerDraw {
+  key: string;
+  /** the picture or the video with a frame ready */
+  image: ImageBitmap | HTMLVideoElement;
+  /** a bumped number when the image changed (a new bitmap of the same picture) */
+  version: number;
+  /** the source's own size in pixels (the bitmap may be smaller) */
+  imageW: number;
+  imageH: number;
+  frame: FrameDesc;
+  adjust: AdjustDesc | null;
 }
 
 export type OverlayImage = ImageBitmap | HTMLCanvasElement | OffscreenCanvas;
@@ -51,6 +70,10 @@ export interface DrawInput {
   /** the slate of scene `sceneNumber` in slot `slot` (0: the frame's scene or a cut's outgoing one, 1: a cut's incoming one) */
   slate(sceneNumber: number, slot: 0 | 1): SlateImage;
   overlays: readonly Overlay[];
+  /** v0.2: the layer clips on screen, bottom first (drawn over the scene, under the overlays) */
+  layers?: readonly LayerDraw[];
+  /** v0.2: the colour adjust of the scene on screen (the outgoing one during a cut) */
+  adjust?: AdjustDesc | null;
 }
 
 export interface Compositor {

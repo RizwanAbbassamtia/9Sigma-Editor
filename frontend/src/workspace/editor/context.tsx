@@ -3,10 +3,13 @@ import { createContext, useContext } from "react";
 import type { TimeStore } from "../../components/preview/timeStore";
 import type { LivePreviewHandle } from "../../components/preview/LivePreview";
 import type { Project, ProjectFormat } from "../../types/project";
-import type { BundlePicture, BundleSentence, TimelineBundle, WaveformPeaks, MusicEnvelope } from "../../types/preview";
+import type { BundlePicture, BundleSentence, BundleSource, TimelineBundle, WaveformPeaks, MusicEnvelope } from "../../types/preview";
 import type { TransitionCatalogue, TransitionPack } from "../../types/storyboard";
 import type { EditChoices, EditReviewPayload, Timeline } from "../../types/timeline";
+import type { MediaLibrary } from "../../types/media";
+import type { VoiceRequest, VoiceResult, VoiceStatus } from "../../types/voice";
 import type { Selection } from "./document";
+import type { NarrationInput } from "../../api/media";
 import type { RenderStatus } from "../../api/projects";
 
 export type SaveState = { kind: "saved"; at: string } | { kind: "saving" } | { kind: "retrying"; error: string } | { kind: "conflict" } | { kind: "clean" };
@@ -21,6 +24,14 @@ export interface EditorState {
   sentences: readonly BundleSentence[];
   /** by scene index */
   pictures: ReadonlyMap<number, BundlePicture>;
+  /** v0.2: the files of layer and sound clips and clip scenes, by path */
+  sources: ReadonlyMap<string, BundleSource>;
+  /** v0.2: the media library (01_media) */
+  media: MediaLibrary | null;
+  /** v0.2: where the timing comes from: "scenes" means no narration (picture time ripples) */
+  timingSource: string | null;
+  /** v0.2: the AI voice's key state */
+  voiceStatus: VoiceStatus | null;
   voicePeaks: WaveformPeaks | null;
   musicPeaks: WaveformPeaks | null;
   envelope: MusicEnvelope | null;
@@ -46,6 +57,8 @@ export interface EditorState {
   linkPopups: boolean;
   followPlayhead: boolean;
   timeStore: TimeStore;
+  /** v0.2: a server call that takes a while is running (import, narration, the AI voice) */
+  busy: string | null;
 }
 
 export interface EditorActions {
@@ -69,12 +82,19 @@ export interface EditorActions {
   preview: React.RefObject<LivePreviewHandle | null>;
   /** server-side changes (the timeline is built again on the server) */
   replacePicture(index: number, file: File): Promise<void>;
-  addScene(file: File): Promise<void>;
+  /** a new scene from an upload, or from a library file (its path) */
+  addScene(source: File | string, after?: number, keepSound?: boolean): Promise<void>;
   reorderScenes(order: number[]): Promise<void>;
   removeScene(index: number): Promise<void>;
   shortenPause(sentenceIndex: number, shift_s: number): Promise<void>;
   applyChoices(choices: EditChoices): Promise<void>;
   rebuild(): Promise<void>;
+  /** v0.2: the media library */
+  importMedia(files: File[]): Promise<void>;
+  removeMedia(path: string): Promise<void>;
+  setNarration(input: NarrationInput): Promise<void>;
+  /** v0.2: the AI voice; null when it failed (the reason was shown) */
+  makeVoice(request: VoiceRequest): Promise<VoiceResult | null>;
   /** tells the person something (a toast) */
   notify(tone: "info" | "success" | "error", title: string, description?: string): void;
 }

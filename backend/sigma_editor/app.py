@@ -57,6 +57,7 @@ OPTIONAL_ROUTERS: tuple[tuple[str, str], ...] = (
     ("sigma_editor.api.files", ""),
     ("sigma_editor.api.preview", ""),
     ("sigma_editor.api.editing", ""),
+    ("sigma_editor.api.voice", ""),
     ("sigma_editor.api.ws", ""),
 )
 """Routers that arrive with the render engine; each is mounted when its module imports."""

@@ -743,7 +743,11 @@ def preview_audio_path(folder: Path | str) -> Path:
 
 def gain_key(timeline: Timeline, folder: Path | str, config: Any, stem: str | None) -> str:
     """A short hash of what the preview's loudness depends on: the voice and where it plays,
-    the stem (its key) and the loudness target."""
+    the stem (its key), the extra sounds of v0.2 (clip sound, sound tracks: each file, and
+    where and how it plays; left out when there are none, so older keys stay the same) and
+    the loudness target."""
+    from .ffmpeg import extra_sounds
+
     payload = {
         "version": GAIN_VERSION,
         "voice": voice_description(timeline, folder),
@@ -753,6 +757,11 @@ def gain_key(timeline: Timeline, folder: Path | str, config: Any, stem: str | No
         "true_peak": float(getattr(config, "loudnorm_tp", -1.5)),
         "range": float(getattr(config, "loudnorm_lra", 11.0)),
     }
+    extras = extra_sounds(timeline, folder, config) if folder is not None else []
+    if extras:
+        payload["extras"] = [
+            [_fingerprint(sound.file), *sound.key_values()] for sound in extras
+        ]
     blob = json.dumps(payload, sort_keys=True, default=str)
     return hashlib.sha256(blob.encode("utf-8")).hexdigest()[:16]
 

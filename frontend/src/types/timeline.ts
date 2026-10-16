@@ -131,6 +131,128 @@ export interface TimelineTransition {
   duration_s: number;
 }
 
+// ---- v0.2: frames, adjust, clips, layers and sound tracks (docs/CONTRACT-v0.2.md 3 and 4) ----
+
+export const MIN_SPEED = 0.25;
+export const MAX_SPEED = 4;
+export const MAX_CROP = 0.95;
+export const SPEED_STEPS = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 2, 3, 4] as const;
+
+export type FrameFit = "cover" | "contain";
+export type LayerClipKind = "picture" | "clip";
+export type AudioTrackKind = "voice" | "sound";
+
+/** Where a picture or clip sits in the frame (CapCut's Basic and Crop). */
+export interface FrameAdjust {
+  /** the centre as a fraction of the frame width; 0 = the middle, 0.5 = the right edge */
+  x: number;
+  /** the centre as a fraction of the frame height; 0 = the middle */
+  y: number;
+  /** 1 = fills the frame as `fit` says */
+  scale: number;
+  /** degrees, clockwise */
+  rotation: number;
+  /** 0 to 1 */
+  opacity: number;
+  /** left, top, right, bottom: fractions of the source cut away */
+  crop: [number, number, number, number];
+  fit: FrameFit;
+  flip_h: boolean;
+  flip_v: boolean;
+}
+
+/** CapCut's Adjust: -1 to 1, 0 = as shot. */
+export interface ColourAdjust {
+  brightness: number;
+  contrast: number;
+  saturation: number;
+}
+
+/** The video clip a scene plays (its `image` is the poster frame). */
+export interface ClipSource {
+  /** relative to the edit's folder (01_media/...) */
+  path: string;
+  /** where in the clip the scene starts */
+  in_s: number;
+  /** 0.25 to 4 */
+  speed: number;
+  keep_sound: boolean;
+  gain_db: number;
+  /** the file's own length when known */
+  duration_s: number | null;
+}
+
+export interface LayerClip {
+  id: string;
+  /** a picture or clip in the edit's folder */
+  source: string;
+  kind: LayerClipKind;
+  name: string;
+  start_s: number;
+  end_s: number;
+  /** clips: where in the file it starts */
+  in_s: number;
+  speed: number;
+  keep_sound: boolean;
+  gain_db: number;
+  duration_s: number | null;
+  frame: FrameAdjust;
+  adjust: ColourAdjust;
+}
+
+/** One layer of pictures and clips over the scenes (the last layer is the top one). */
+export interface Layer {
+  id: string;
+  name: string;
+  visible: boolean;
+  locked: boolean;
+  clips: LayerClip[];
+}
+
+export interface AudioClip {
+  id: string;
+  source: string;
+  name: string;
+  start_s: number;
+  end_s: number;
+  in_s: number;
+  speed: number;
+  gain_db: number;
+  fade_in_s: number;
+  fade_out_s: number;
+  duration_s: number | null;
+  /** an AI voice: the text it says */
+  text: string;
+  /** an AI voice: the voice it was made with */
+  voice: string;
+}
+
+export interface AudioTrack {
+  id: string;
+  name: string;
+  kind: AudioTrackKind;
+  muted: boolean;
+  gain_db: number;
+  clips: AudioClip[];
+}
+
+export function defaultFrame(fit: FrameFit = "contain"): FrameAdjust {
+  return { x: 0, y: 0, scale: 1, rotation: 0, opacity: 1, crop: [0, 0, 0, 0], fit, flip_h: false, flip_v: false };
+}
+
+export function defaultAdjust(): ColourAdjust {
+  return { brightness: 0, contrast: 0, saturation: 0 };
+}
+
+export function isDefaultAdjust(adjust: ColourAdjust | null | undefined): boolean {
+  return !adjust || (adjust.brightness === 0 && adjust.contrast === 0 && adjust.saturation === 0);
+}
+
+/** No change to the picture apart from how it fits. */
+export function isIdentityFrame(frame: FrameAdjust | null | undefined): boolean {
+  return !frame || (frame.x === 0 && frame.y === 0 && frame.scale === 1 && frame.rotation === 0 && frame.opacity === 1 && !frame.crop.some(Boolean) && !frame.flip_h && !frame.flip_v);
+}
+
 export interface TimelineScene {
   index: number;
   /** image file, relative to the project folder (06_images/scene_01.png) */
@@ -144,6 +266,12 @@ export interface TimelineScene {
   sentence_ids: string[];
   /** M5: the fields a person changed ("times", "motion", "transition_out", "image" ...), kept through a rebuild */
   edited: string[];
+  /** v0.2: the video clip this scene plays; null = a still picture */
+  clip: ClipSource | null;
+  /** v0.2: clips: where the clip sits in the frame; null = fills it */
+  frame: FrameAdjust | null;
+  /** v0.2: colour; null = as shot */
+  adjust: ColourAdjust | null;
 }
 
 /** M5: a popup tied to a sentence; it starts `offset_s` after that sentence starts. */
@@ -280,6 +408,10 @@ export interface Timeline {
   markers: TimelineMarker[];
   /** M5 */
   render: TimelineRender;
+  /** v0.2: pictures and clips drawn over the scenes, bottom layer first */
+  layers: Layer[];
+  /** v0.2: sound tracks mixed under the voice */
+  audio_tracks: AudioTrack[];
 }
 
 // ---- review payload -----------------------------------------------------------------
@@ -484,6 +616,95 @@ export function motionStyleOf(value: unknown): TimelineMotionStyle {
   return key === "parallax" || key === "2.5d" || key === "2_5d" || key === "2.5d_parallax" || key === "depth" ? "parallax" : "ken_burns";
 }
 
+function clamp(value: number, low: number, high: number): number {
+  return Math.min(high, Math.max(low, value));
+}
+
+function parseFrame(raw: unknown): FrameAdjust | null {
+  if (!isRecord(raw)) return null;
+  const base = defaultFrame(raw.fit === "cover" ? "cover" : "contain");
+  const crop = Array.isArray(raw.crop) && raw.crop.length === 4 ? (raw.crop.map((v) => clamp(num(v), 0, MAX_CROP)) as [number, number, number, number]) : base.crop;
+  return {
+    x: clamp(num(raw.x), -2, 2),
+    y: clamp(num(raw.y), -2, 2),
+    scale: clamp(num(raw.scale, 1), 0.01, 10),
+    rotation: clamp(num(raw.rotation), -360, 360),
+    opacity: clamp(num(raw.opacity, 1), 0, 1),
+    crop,
+    fit: base.fit,
+    flip_h: bool(raw.flip_h),
+    flip_v: bool(raw.flip_v),
+  };
+}
+
+function parseAdjust(raw: unknown): ColourAdjust | null {
+  if (!isRecord(raw)) return null;
+  return { brightness: clamp(num(raw.brightness), -1, 1), contrast: clamp(num(raw.contrast), -1, 1), saturation: clamp(num(raw.saturation), -1, 1) };
+}
+
+function parseClipSource(raw: unknown): ClipSource | null {
+  if (!isRecord(raw)) return null;
+  const path = str(raw.path);
+  if (!path) return null;
+  return { path, in_s: Math.max(0, num(raw.in_s)), speed: clamp(num(raw.speed, 1), MIN_SPEED, MAX_SPEED), keep_sound: bool(raw.keep_sound), gain_db: num(raw.gain_db), duration_s: nullableNum(raw.duration_s) };
+}
+
+function parseLayerClip(raw: unknown): LayerClip | null {
+  if (!isRecord(raw)) return null;
+  const source = str(raw.source);
+  if (!source) return null;
+  const start = Math.max(0, num(raw.start_s));
+  return {
+    id: str(raw.id),
+    source,
+    kind: raw.kind === "clip" ? "clip" : "picture",
+    name: str(raw.name),
+    start_s: start,
+    end_s: Math.max(start, num(raw.end_s)),
+    in_s: Math.max(0, num(raw.in_s)),
+    speed: clamp(num(raw.speed, 1), MIN_SPEED, MAX_SPEED),
+    keep_sound: bool(raw.keep_sound),
+    gain_db: num(raw.gain_db),
+    duration_s: nullableNum(raw.duration_s),
+    frame: parseFrame(raw.frame) ?? defaultFrame(),
+    adjust: parseAdjust(raw.adjust) ?? defaultAdjust(),
+  };
+}
+
+function parseLayer(raw: unknown): Layer | null {
+  if (!isRecord(raw)) return null;
+  const clips = Array.isArray(raw.clips) ? raw.clips.map(parseLayerClip).filter((clip): clip is LayerClip => clip !== null) : [];
+  return { id: str(raw.id), name: str(raw.name), visible: bool(raw.visible, true), locked: bool(raw.locked), clips: clips.sort((a, b) => a.start_s - b.start_s) };
+}
+
+function parseAudioClip(raw: unknown): AudioClip | null {
+  if (!isRecord(raw)) return null;
+  const source = str(raw.source);
+  if (!source) return null;
+  const start = Math.max(0, num(raw.start_s));
+  return {
+    id: str(raw.id),
+    source,
+    name: str(raw.name),
+    start_s: start,
+    end_s: Math.max(start, num(raw.end_s)),
+    in_s: Math.max(0, num(raw.in_s)),
+    speed: clamp(num(raw.speed, 1), MIN_SPEED, MAX_SPEED),
+    gain_db: num(raw.gain_db),
+    fade_in_s: Math.max(0, num(raw.fade_in_s)),
+    fade_out_s: Math.max(0, num(raw.fade_out_s)),
+    duration_s: nullableNum(raw.duration_s),
+    text: str(raw.text),
+    voice: str(raw.voice),
+  };
+}
+
+function parseAudioTrack(raw: unknown): AudioTrack | null {
+  if (!isRecord(raw)) return null;
+  const clips = Array.isArray(raw.clips) ? raw.clips.map(parseAudioClip).filter((clip): clip is AudioClip => clip !== null) : [];
+  return { id: str(raw.id), name: str(raw.name), kind: raw.kind === "voice" ? "voice" : "sound", muted: bool(raw.muted), gain_db: num(raw.gain_db), clips: clips.sort((a, b) => a.start_s - b.start_s) };
+}
+
 function parseTimelineScene(raw: unknown, position: number): TimelineScene {
   const base: TimelineScene = {
     index: position,
@@ -495,6 +716,9 @@ function parseTimelineScene(raw: unknown, position: number): TimelineScene {
     locked: false,
     sentence_ids: [],
     edited: [],
+    clip: null,
+    frame: null,
+    adjust: null,
   };
   if (!isRecord(raw)) return base;
   const motion = isRecord(raw.motion) ? raw.motion : {};
@@ -519,6 +743,9 @@ function parseTimelineScene(raw: unknown, position: number): TimelineScene {
     locked: bool(raw.locked),
     sentence_ids: strList(raw.sentence_ids),
     edited: strList(raw.edited),
+    clip: parseClipSource(raw.clip),
+    frame: parseFrame(raw.frame),
+    adjust: parseAdjust(raw.adjust),
   };
 }
 
@@ -705,7 +932,33 @@ export function parseTimeline(raw: unknown): Timeline | null {
     revision: Math.max(1, Math.trunc(num(raw.revision, 1))),
     markers: fillIds(Array.isArray(raw.markers) ? raw.markers.map((marker) => parseMarker(marker)).filter((marker): marker is TimelineMarker => marker !== null) : [], "mark", 3),
     render: { ...render, preview_gain_db: nullableNum(render.preview_gain_db) },
+    layers: fillLayerIds(Array.isArray(raw.layers) ? raw.layers.map(parseLayer).filter((layer): layer is Layer => layer !== null) : []),
+    audio_tracks: fillTrackIds(Array.isArray(raw.audio_tracks) ? raw.audio_tracks.map(parseAudioTrack).filter((track): track is AudioTrack => track !== null) : []),
   };
+}
+
+/** Layer ids (`layer-01`), clip ids across every layer (`lc-001`) and names ("Layer 1"), as the model fills them. */
+export function fillLayerIds(layers: Layer[]): Layer[] {
+  const withIds = fillIds(layers, "layer", 2);
+  const clips = fillIds(withIds.flatMap((layer) => layer.clips), "lc", 3);
+  let taken = 0;
+  return withIds.map((layer, index) => {
+    const own = clips.slice(taken, taken + layer.clips.length);
+    taken += layer.clips.length;
+    return { ...layer, name: layer.name || `Layer ${index + 1}`, clips: own };
+  });
+}
+
+/** Track ids (`track-01`), clip ids across every track (`ac-001`) and names ("Sound 1"). */
+export function fillTrackIds(tracks: AudioTrack[]): AudioTrack[] {
+  const withIds = fillIds(tracks, "track", 2);
+  const clips = fillIds(withIds.flatMap((track) => track.clips), "ac", 3);
+  let taken = 0;
+  return withIds.map((track, index) => {
+    const own = clips.slice(taken, taken + track.clips.length);
+    taken += track.clips.length;
+    return { ...track, name: track.name || `Sound ${index + 1}`, clips: own };
+  });
 }
 
 const DONE_WORDS = new Set(["done", "ok", "ready", "rendered", "complete", "completed", "finished", "success"]);

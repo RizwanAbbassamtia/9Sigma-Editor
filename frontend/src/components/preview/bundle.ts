@@ -84,6 +84,7 @@ export function bundleFromTimeline(projectId: string, timeline: Timeline, sizes?
     timing_estimated: false,
     cue_words: {},
     preview_gain_curve: null,
+    sources: [],
   };
 }
 

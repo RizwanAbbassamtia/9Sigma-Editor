@@ -16,6 +16,13 @@ Two ways to draw a scene:
   window moves in single pixels, not pairs). This is the default.
 * A *frame provider* (``register_frame_provider``): Python code that draws the frames (the
   2.5D parallax renderer, or sub-pixel Ken Burns). Its frames go to x264 through a pipe.
+* A *clip scene* (9Sigma Editor v0.2, docs/CONTRACT-v0.2.md section 6: ``scene.clip`` is
+  set) is one FFmpeg run on the video clip: decoded from ``in_s`` (less the lead-in) at
+  ``speed``, fitted to the frame as ``scene.frame`` says (``None``: it fills the frame),
+  the first frame held while the lead-in starts before the clip, the last frame held when
+  the clip runs out, exactly the planned frames (:func:`render_video_clip`). Its hash
+  covers the clip file (path, size, date), ``in_s``, ``speed``, the lead-in and the frame,
+  not the camera move (a clip scene has none in v0.2).
 
 The hash covers the picture (path, size, modification time), the whole motion block of the
 timeline (preset, rectangles, style, strength), the clip length and keyframes, the preset's
@@ -54,15 +61,19 @@ from typing import Any, Protocol, runtime_checkable
 
 import numpy as np
 
-from ..models.timeline import TimelineMotion
+from ..models.timeline import ClipSource, FrameAdjust, TimelineMotion
 from .ffmpeg import (
+    HOLD_LAST_FRAME_S,
     NO_WINDOW,
     RenderCancelled,
     RenderError,
     RenderOutOfMemory,
     fmt,
+    frame_fit_parts,
+    frame_place_exprs,
     looks_out_of_memory,
     oserror_is_memory,
+    resolve_path,
 )
 from .geometry import cover_region
 from .presets import PROXY_ID, RenderConfig, RenderPreset
@@ -102,6 +113,8 @@ X264_LOOKAHEAD: dict[str, int] = {
 """x264's own ``rc-lookahead`` per speed preset (only lowered, never raised)."""
 
 Stop = Callable[[], bool]
+VIDEO_RENDERER = "video"
+"""The ``renderer`` of a clip scene (drawn from its video clip, v0.2)."""
 
 
 # Encoding --------------------------------------------------------------------------------------
@@ -248,6 +261,16 @@ class SceneFrameRequest:
     seed: int
     preset_id: str
     folder: Path
+    clip: ClipSource | None = None
+    """A clip scene (v0.2): the video clip the scene plays (``image`` is its poster frame),
+    relative to ``folder``."""
+    frame: FrameAdjust | None = None
+    """A clip scene: where the clip sits in the frame (``None``: it fills the frame)."""
+
+    @property
+    def clip_file(self) -> Path | None:
+        """The clip scene's video file, or ``None`` for a picture scene."""
+        return resolve_path(self.folder, self.clip.path) if self.clip is not None else None
 
     def path(self) -> Any:
         """The scene's ``MotionPath`` in picture pixels (kept inside the cover region), with
@@ -402,6 +425,8 @@ class SceneClipJob:
     path: Path | None = None
     """The clip on disk once rendered or found (a reused clip may carry another NN)."""
     image_stat: os.stat_result | None = None
+    clip_stat: os.stat_result | None = None
+    """The clip scene's video file (size and date go into the hash)."""
     fallback: str = ""
     """Why the frame provider could not draw this scene (it was drawn by zoompan instead)."""
 
@@ -432,7 +457,7 @@ class SceneClipJob:
         motion = request.motion.model_dump(mode="json")
         if motion.get("ease") is None:  # M5's motion.ease: no override, same clip as before
             motion.pop("ease", None)
-        return {
+        payload: dict[str, Any] = {
             "engine": CLIP_ENGINE_VERSION,
             "image": str(request.image),
             "image_mtime_ns": int(image_stat.st_mtime_ns) if image_stat else 0,
@@ -449,6 +474,26 @@ class SceneClipJob:
             "encoding": self.encoding.token(),
             "renderer": self.renderer,
         }
+        clip = request.clip
+        if clip is not None:
+            # A clip scene (v0.2): the clip file, where and how fast it plays, the lead-in
+            # (it moves the decode offset) and the frame; no camera move in v0.2.
+            stat = self.clip_stat
+            payload["clip"] = {
+                "file": str(request.clip_file),
+                "mtime_ns": int(stat.st_mtime_ns) if stat else 0,
+                "bytes": int(stat.st_size) if stat else 0,
+                "in_s": float(clip.in_s),
+                "speed": float(clip.speed),
+                "lead_in": request.lead_in,
+                "frame": (
+                    request.frame.model_dump(mode="json") if request.frame is not None else None
+                ),
+            }
+            payload["motion"] = None
+            payload["seed"] = 0
+            payload["motion_settings"] = ""
+        return payload
 
 
 def wobbles(motion: TimelineMotion) -> bool:
@@ -481,7 +526,12 @@ def make_scene_job(
     config: RenderConfig,
     folder: Path,
     encoding: ClipEncoding,
+    clip: ClipSource | None = None,
+    frame: FrameAdjust | None = None,
 ) -> SceneClipJob:
+    """The job of one scene clip. ``clip`` (v0.2) makes it a clip scene drawn from the
+    video clip by :func:`render_video_clip` (``image`` is then the poster frame); otherwise
+    a frame provider or zoompan draws the picture."""
     width, height = preset.size(aspect)
     canvas = preset.canvas(aspect)
     region = cover_region(image_size[0], image_size[1], width, height)
@@ -500,8 +550,13 @@ def make_scene_job(
         seed=index,
         preset_id=preset.id,
         folder=Path(folder),
+        clip=clip,
+        frame=frame,
     )
-    provider, renderer = choose_provider(request)
+    if clip is not None:
+        provider, renderer = None, VIDEO_RENDERER
+    else:
+        provider, renderer = choose_provider(request)
     job = SceneClipJob(
         number=number,
         request=request,
@@ -515,6 +570,12 @@ def make_scene_job(
         job.image_stat = image.stat()
     except OSError:
         job.image_stat = None
+    clip_file = request.clip_file
+    if clip_file is not None:
+        try:
+            job.clip_stat = clip_file.stat()
+        except OSError:
+            job.clip_stat = None
     job.rekey()
     return job
 
@@ -936,6 +997,97 @@ def render_zoompan(job: SceneClipJob, out_path: Path, *, ffmpeg: str, stop: Stop
     finish_clip(part, out_path)
 
 
+# Clip scenes (v0.2) ------------------------------------------------------------------------------
+
+
+def clip_decode_start(clip: ClipSource, lead_in: int, fps: int) -> tuple[float, float]:
+    """Where decoding starts in the clip's file for a scene clip that begins ``lead_in``
+    frames before its scene, and for how many output seconds the first frame is held
+    first: the scene's start shows the clip at ``in_s``, so the clip starts
+    ``lead_in / fps * speed`` seconds earlier in the file; when that is before the file's
+    start, decoding starts at 0 and the first frame fills the rest."""
+    lead_s = int(lead_in) / max(int(fps), 1)
+    offset = float(clip.in_s) - lead_s * float(clip.speed)
+    if offset < 0:
+        return 0.0, round(-offset / float(clip.speed), 6)
+    return round(offset, 6), 0.0
+
+
+def video_clip_graph(job: SceneClipJob) -> str:
+    """The filter graph of a clip scene: the clip at the scene's speed, a constant frame
+    rate, the first frame held while the lead-in starts before the clip does and the last
+    one held when the clip runs out, fitted to the frame (``frame``; without one, or with
+    one that only says ``cover``, the clip fills the frame), yuv420p with the BT.709 tags
+    of every scene clip."""
+    request = job.request
+    clip, frame = request.clip, request.frame
+    assert clip is not None
+    width, height = request.size
+    _offset, hold = clip_decode_start(clip, request.lead_in, request.fps)
+    pad = ["stop_mode=clone", f"stop_duration={HOLD_LAST_FRAME_S}"]
+    if hold > 0:
+        pad = ["start_mode=clone", f"start_duration={fmt(hold)}", *pad]
+    source = (
+        f"[0:v]setpts=(PTS-STARTPTS)/{fmt(clip.speed)},fps={request.fps},"
+        f"tpad={':'.join(pad)}"
+    )
+    if frame is None or (frame.is_identity and frame.fit == "cover"):
+        return (
+            f"{source},scale={width}:{height}:force_original_aspect_ratio=increase"
+            f":flags={job.scale_flags}:out_color_matrix=bt709:out_range=tv,"
+            f"crop={width}:{height},format=yuv420p,{COLOUR_TAGS},setsar=1[v]"
+        )
+    x_expr, y_expr = frame_place_exprs(frame, request.size)
+    parts = [
+        f"{source}[src]",
+        *frame_fit_parts("[src]", "[pic]", frame, request.size, scale_flags=job.scale_flags),
+        f"color=c=black:s={width}x{height}:r={request.fps}[bg]",
+        f"[bg][pic]overlay=x='{x_expr}':y='{y_expr}':format=rgb,{TO_YUV}[v]",
+    ]
+    return ";".join(parts)
+
+
+def render_video_clip(job: SceneClipJob, out_path: Path, *, ffmpeg: str, stop: Stop,
+                      on_frames: Callable[[int], None]) -> None:
+    """Draw a clip scene: one FFmpeg run that decodes the clip from its offset (``-ss`` at
+    the input), runs :func:`video_clip_graph` and writes exactly the planned frames,
+    encoded and keyframed like every other scene clip (no sound: the clip's own sound is
+    mixed in the final pass)."""
+    request = job.request
+    clip = request.clip
+    file = request.clip_file
+    assert clip is not None and file is not None
+    offset, _hold = clip_decode_start(clip, request.lead_in, request.fps)
+    part = part_path(out_path)
+    command = [
+        ffmpeg, "-hide_banner", "-nostdin", "-loglevel", "warning", "-nostats",
+        "-progress", "pipe:1", "-stats_period", "0.5", "-y",
+        "-ss", fmt(offset), "-i", str(file),
+        "-filter_complex", video_clip_graph(job),
+        "-map", "[v]", "-frames:v", str(request.frames),
+        *job.encoding.args(), *keyframe_args(job.keyframes),
+        str(part),
+    ]
+    child = _Watched(command, stdout=subprocess.PIPE, stop=stop)
+    assert child.process.stdout is not None
+    try:
+        _progress_frames(child.process.stdout, on_frames)
+    finally:
+        code = child.wait()
+    if child.killed.is_set():
+        _discard(part)
+        raise RenderCancelled("The render was stopped.")
+    if code != 0 or not mp4_is_whole(part):
+        _discard(part)
+        if child.out_of_memory():
+            raise child.failure(f"FFmpeg ran out of memory drawing scene {job.number}")
+        detail = child.tail(1) or (f"exit code {code}" if code else "it gave no frames")
+        raise RenderError(
+            f"The clip {file.name} for scene {job.number} could not be read: {detail}"
+        )
+    finish_clip(part, out_path)
+
+
 def render_with_provider(job: SceneClipJob, out_path: Path, *, ffmpeg: str, stop: Stop,
                          on_frames: Callable[[int], None]) -> None:
     provider = job.provider
@@ -972,7 +1124,10 @@ def render_scene_clip(job: SceneClipJob, clips_dir: Path, *, ffmpeg: str, stop: 
                       on_frames: Callable[[int], None]) -> ClipOutcome:
     """Draw one scene clip into ``clips_dir`` (the caller has checked it is not cached)."""
     started = time.monotonic()
-    if job.provider is not None:
+    if job.request.clip is not None:
+        render_video_clip(job, clips_dir / job.file_name, ffmpeg=ffmpeg, stop=stop,
+                          on_frames=on_frames)
+    elif job.provider is not None:
         try:
             render_with_provider(job, clips_dir / job.file_name, ffmpeg=ffmpeg, stop=stop,
                                  on_frames=on_frames)

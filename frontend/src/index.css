@@ -162,6 +162,8 @@ body.workspace-open {
   --lane-music: #2f6b4f;
   --lane-music-wave: #9be0b8;
   --lane-marker: #60a5fa;
+  --lane-layer: #4a3f7a;
+  --lane-sound: #3e5a8a;
   --motion-start: #22c55e;
   --motion-end: #f87171;
 
@@ -204,6 +206,8 @@ body.workspace-open {
   --color-lane-music: var(--lane-music);
   --color-lane-music-wave: var(--lane-music-wave);
   --color-lane-marker: var(--lane-marker);
+  --color-lane-layer: var(--lane-layer);
+  --color-lane-sound: var(--lane-sound);
   --font-timecode: "IBM Plex Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
 }
 

@@ -56,6 +56,18 @@ export interface BundleFont {
   url: string;
 }
 
+/** v0.2: a file a layer or sound clip (or a clip scene) plays, with what the preview needs. */
+export interface BundleSource {
+  /** relative to the edit's folder */
+  path: string;
+  kind: "picture" | "clip" | "audio" | "captions";
+  width: number;
+  height: number;
+  duration_s: number | null;
+  thumb_url: string | null;
+  url: string;
+}
+
 export interface BundleMedia {
   /** the whole narration (`05_voice/voice.wav`); null before the voice exists */
   voice_url: string | null;
@@ -100,6 +112,8 @@ export interface TimelineBundle {
   cue_words: Record<string, BundleWord[]>;
   /** additive: loudnorm's gain over the video once measured for this sound (followed instead of `preview_gain_db`) */
   preview_gain_curve: PreviewGainCurve | null;
+  /** v0.2: the files of the layer and sound clips and the clip scenes */
+  sources: BundleSource[];
 }
 
 // ---- other preview routes ----------------------------------------------------------------
@@ -214,6 +228,14 @@ function parsePicture(raw: unknown): BundlePicture | null {
   return { scene: Math.trunc(scene), path, width: num(raw.width), height: num(raw.height), thumb_url: nullableStr(raw.thumb_url) };
 }
 
+function parseSource(raw: unknown): BundleSource | null {
+  if (!isRecord(raw)) return null;
+  const path = str(raw.path);
+  if (!path) return null;
+  const kind = raw.kind === "clip" || raw.kind === "audio" || raw.kind === "captions" ? raw.kind : "picture";
+  return { path, kind, width: num(raw.width), height: num(raw.height), duration_s: nullableNum(raw.duration_s), thumb_url: nullableStr(raw.thumb_url), url: str(raw.url) };
+}
+
 function parseCueWords(raw: unknown): Record<string, BundleWord[]> {
   if (!isRecord(raw)) return {};
   const out: Record<string, BundleWord[]> = {};
@@ -268,6 +290,7 @@ export function parseTimelineBundle(raw: unknown): TimelineBundle | null {
     timing_estimated: raw.timing_estimated === true,
     cue_words: parseCueWords(raw.cue_words),
     preview_gain_curve: parseGainCurve(raw.preview_gain_curve),
+    sources: Array.isArray(raw.sources) ? raw.sources.map(parseSource).filter((source): source is BundleSource => source !== null) : [],
   };
 }
 

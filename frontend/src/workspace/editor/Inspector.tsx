@@ -7,25 +7,32 @@ import { FilePickButton } from "../../components/form/FilePickButton";
 import { TransitionPreview } from "../../components/storyboard/TransitionPicker";
 import { cn } from "../../lib/cn";
 import { MOTION_PRESETS } from "../../preview/motion";
-import { MOTION_EASE_LABELS, MOTION_EASES, POPUP_ANIMS, renderPresetLabel, type MotionEase, type TimelinePopup, type TimelineScene } from "../../types/timeline";
+import { MOTION_EASE_LABELS, MOTION_EASES, POPUP_ANIMS, SPEED_STEPS, defaultAdjust, defaultFrame, isDefaultAdjust, isIdentityFrame, renderPresetLabel, type ColourAdjust, type FrameAdjust, type MotionEase, type TimelinePopup, type TimelineScene } from "../../types/timeline";
 import { MOTION_LABELS, POPUP_POSITIONS, POPUP_POSITION_LABELS } from "../../types/storyboard";
 import { TRANSITION_PACK_LABELS } from "../../types/transitions";
 import { useEditor } from "./context";
 import {
   LONG_POPUP_S,
+  MIN_CLIP_S,
   MIN_POPUP_S,
   type Selection,
   applyPreset,
   addPopup,
   clock,
   cutLimit,
+  findAudioClip,
+  findLayerClip,
   mergeCueWithNext,
   mergeScene,
   motionView,
   moveCut,
   pausesOf,
   rectFromView,
+  removeAudioClip,
+  removeAudioTrack,
   removeCue,
+  removeLayer,
+  removeLayerClip,
   removeMarker,
   removePopup,
   sceneIndexAt,
@@ -33,12 +40,23 @@ import {
   seconds,
   setMotion,
   setMusic,
+  setSceneAdjust,
+  setSceneClip,
+  setSceneFrame,
+  setSceneLength,
   setTransition,
+  sourceSpan,
   splitCue,
   splitScene,
   swapMotion,
   transitionEntry,
+  trimAudioClip,
+  trimLayerClip,
+  updateAudioClip,
+  updateAudioTrack,
   updateCue,
+  updateLayer,
+  updateLayerClip,
   updateMarker,
   updatePopup,
   setLocked,
@@ -72,6 +90,7 @@ function Row({ label, children }: { label: string; children: ReactNode }) {
 }
 
 const control = "ws-focus h-6 w-full rounded border border-ed-line bg-ed-raised px-1.5 text-[12px] text-ink tnum disabled:opacity-50";
+const linkButton = "ws-focus h-6 rounded px-2 text-[11px] text-ink-muted hover:bg-ed-raised hover:text-ink disabled:opacity-50";
 
 function NumberBox({ value, onCommit, min, max, step = 0.1, suffix, disabled }: { value: number; onCommit: (value: number) => void; min?: number; max?: number; step?: number; suffix?: string; disabled?: boolean }) {
   const [text, setText] = useState(String(value));
@@ -88,6 +107,18 @@ function NumberBox({ value, onCommit, min, max, step = 0.1, suffix, disabled }: 
       <input type="number" step={step} value={text} disabled={disabled} onChange={(event) => setText(event.target.value)} onBlur={commit} onKeyDown={(event) => { if (event.key === "Enter") (event.target as HTMLInputElement).blur(); if (event.key === "Escape") setText(String(value)); }} className={control} />
       {suffix ? <span className="text-[11px] text-ink-faint">{suffix}</span> : null}
     </span>
+  );
+}
+
+/** A slider with its value next to it (the value is committed on every move). */
+function SliderRow({ label, value, min, max, step, suffix, disabled, onChange, format }: { label: string; value: number; min: number; max: number; step: number; suffix?: string; disabled?: boolean; onChange: (value: number) => void; format?: (value: number) => string }) {
+  return (
+    <Row label={label}>
+      <span className="flex items-center gap-2">
+        <input type="range" min={min} max={max} step={step} value={value} disabled={disabled} onChange={(event) => onChange(Number(event.target.value))} className="flex-1 accent-accent" aria-label={label} />
+        <span className="w-14 text-right tnum text-[11px] text-ink">{format ? format(value) : `${Math.round(value * 100) / 100}${suffix ?? ""}`}</span>
+      </span>
+    </Row>
   );
 }
 
@@ -111,6 +142,94 @@ function Header({ title, subtitle, children }: { title: string; subtitle?: React
       </div>
       {children}
     </header>
+  );
+}
+
+function SpeedRow({ value, disabled, onChange, max = 4 }: { value: number; disabled?: boolean; onChange: (value: number) => void; max?: number }) {
+  return (
+    <Row label="Speed">
+      <span className="flex items-center gap-1">
+        <select value={SPEED_STEPS.includes(value as (typeof SPEED_STEPS)[number]) ? String(value) : "custom"} disabled={disabled} onChange={(event) => { if (event.target.value !== "custom") onChange(Number(event.target.value)); }} className={cn(control, "w-24")}>
+          {SPEED_STEPS.filter((step) => step <= max).map((step) => (
+            <option key={step} value={String(step)}>
+              {step}x{step === 1 ? " (normal)" : ""}
+            </option>
+          ))}
+          <option value="custom">Other</option>
+        </select>
+        <NumberBox value={value} min={0.25} max={max} step={0.05} suffix="x" disabled={disabled} onCommit={onChange} />
+      </span>
+    </Row>
+  );
+}
+
+// ---- the v0.2 sections: frame, adjust ---------------------------------------------------------
+
+function FrameSection({ frame, onChange, disabled, open, onToggle, showFit = true }: { frame: FrameAdjust; onChange: (patch: Partial<FrameAdjust> | null) => void; disabled: boolean; open: boolean; onToggle: () => void; showFit?: boolean }) {
+  const pct = (value: number) => `${Math.round(value * 100)}%`;
+  const crop = frame.crop;
+  const setCrop = (index: number, value: number) => {
+    const next = [...crop] as [number, number, number, number];
+    next[index] = Math.max(0, Math.min(0.95, value / 100));
+    onChange({ crop: next });
+  };
+  return (
+    <Section title="Frame" summary={isIdentityFrame(frame) ? `Fills the frame (${frame.fit})` : `${pct(frame.scale)}, ${frame.rotation ? `${frame.rotation}°, ` : ""}${pct(frame.opacity)} opacity`} open={open} onToggle={onToggle}>
+      <SliderRow label="Scale" value={frame.scale} min={0.05} max={3} step={0.01} disabled={disabled} onChange={(scale) => onChange({ scale })} format={pct} />
+      <SliderRow label="Position X" value={frame.x} min={-0.75} max={0.75} step={0.005} disabled={disabled} onChange={(x) => onChange({ x })} format={(v) => `${Math.round(v * 100)}%`} />
+      <SliderRow label="Position Y" value={frame.y} min={-0.75} max={0.75} step={0.005} disabled={disabled} onChange={(y) => onChange({ y })} format={(v) => `${Math.round(v * 100)}%`} />
+      <SliderRow label="Rotation" value={frame.rotation} min={-180} max={180} step={1} disabled={disabled} onChange={(rotation) => onChange({ rotation })} format={(v) => `${Math.round(v)}°`} />
+      <SliderRow label="Opacity" value={frame.opacity} min={0} max={1} step={0.01} disabled={disabled} onChange={(opacity) => onChange({ opacity })} format={pct} />
+      {showFit ? (
+        <Row label="Fit">
+          <select value={frame.fit} disabled={disabled} onChange={(event) => onChange({ fit: event.target.value === "cover" ? "cover" : "contain" })} className={control}>
+            <option value="contain">Whole picture inside the frame</option>
+            <option value="cover">Fill the frame (edges cut off)</option>
+          </select>
+        </Row>
+      ) : null}
+      <Row label="Crop">
+        <span className="grid grid-cols-4 gap-1">
+          {(["Left", "Top", "Right", "Bottom"] as const).map((side, index) => (
+            <span key={side} className="flex flex-col gap-0.5">
+              <input type="number" min={0} max={95} step={1} value={Math.round((crop[index] ?? 0) * 100)} disabled={disabled} onChange={(event) => setCrop(index, Number(event.target.value))} className={control} aria-label={`Crop ${side.toLowerCase()}`} title={`Crop from the ${side.toLowerCase()}, percent`} />
+              <span className="text-center text-[9px] text-ink-faint">{side}</span>
+            </span>
+          ))}
+        </span>
+      </Row>
+      <div className="flex items-center gap-3 text-[11px] text-ink">
+        <label className="flex items-center gap-1.5">
+          <input type="checkbox" className="accent-accent" checked={frame.flip_h} disabled={disabled} onChange={(event) => onChange({ flip_h: event.target.checked })} />
+          Flip left-right
+        </label>
+        <label className="flex items-center gap-1.5">
+          <input type="checkbox" className="accent-accent" checked={frame.flip_v} disabled={disabled} onChange={(event) => onChange({ flip_v: event.target.checked })} />
+          Flip up-down
+        </label>
+        <button type="button" disabled={disabled || isIdentityFrame(frame)} onClick={() => onChange(null)} className={cn(linkButton, "ml-auto")}>
+          Reset
+        </button>
+      </div>
+    </Section>
+  );
+}
+
+function AdjustSection({ adjust, onChange, disabled, open, onToggle }: { adjust: ColourAdjust | null; onChange: (patch: Partial<ColourAdjust> | null) => void; disabled: boolean; open: boolean; onToggle: () => void }) {
+  const value = adjust ?? defaultAdjust();
+  const show = (v: number) => `${v > 0 ? "+" : ""}${Math.round(v * 100)}`;
+  return (
+    <Section title="Adjust" summary={isDefaultAdjust(adjust) ? "As shot" : `Brightness ${show(value.brightness)}, contrast ${show(value.contrast)}, colour ${show(value.saturation)}`} open={open} onToggle={onToggle}>
+      <SliderRow label="Brightness" value={value.brightness} min={-1} max={1} step={0.01} disabled={disabled} onChange={(brightness) => onChange({ brightness })} format={show} />
+      <SliderRow label="Contrast" value={value.contrast} min={-1} max={1} step={0.01} disabled={disabled} onChange={(contrast) => onChange({ contrast })} format={show} />
+      <SliderRow label="Colour" value={value.saturation} min={-1} max={1} step={0.01} disabled={disabled} onChange={(saturation) => onChange({ saturation })} format={show} />
+      <div className="flex items-center justify-between text-[11px] text-ink-faint">
+        <span>0 = as shot. Colour -100 makes it black and white.</span>
+        <button type="button" disabled={disabled || isDefaultAdjust(adjust)} onClick={() => onChange(null)} className={linkButton}>
+          Reset
+        </button>
+      </div>
+    </Section>
   );
 }
 
@@ -151,7 +270,6 @@ function MotionSection({ scene, open, onToggle }: { scene: TimelineScene; open: 
   const [which, setWhich] = useState<"start" | "end">("end");
   const spec = MOTION_PRESETS[scene.motion.preset];
   const label = (MOTION_LABELS as Record<string, string>)[scene.motion.preset] ?? scene.motion.preset;
-  const custom = spec ? JSON.stringify(scene.edited.includes("motion")) : "";
   const commit = (field: "scale" | "cx" | "cy", value: number) => {
     const scale = which === "start" ? view.startScale : view.endScale;
     const centre: [number, number] = which === "start" ? [...view.startCentre] : [...view.endCentre];
@@ -179,10 +297,10 @@ function MotionSection({ scene, open, onToggle }: { scene: TimelineScene; open: 
         <button type="button" onClick={() => setWhich("end")} aria-pressed={which === "end"} className={cn("ws-focus flex h-6 items-center gap-1 rounded px-2", which === "end" ? "bg-ed-raised-hi text-ink" : "text-ink-muted hover:text-ink")}>
           <span className="size-2 rounded-full bg-[#F87171]" aria-hidden /> End
         </button>
-        <button type="button" disabled={state.locked} onClick={() => actions.edit(`swap the start and end of scene ${scene.index + 1}`, (timeline) => swapMotion(timeline, scene.index))} className="ws-focus ml-auto h-6 rounded px-2 text-ink-muted hover:bg-ed-raised hover:text-ink disabled:opacity-50">
+        <button type="button" disabled={state.locked} onClick={() => actions.edit(`swap the start and end of scene ${scene.index + 1}`, (timeline) => swapMotion(timeline, scene.index))} className={cn(linkButton, "ml-auto")}>
           Swap
         </button>
-        <button type="button" disabled={state.locked || !spec} onClick={() => actions.edit(`reset the move of scene ${scene.index + 1}`, (timeline) => applyPreset(timeline, scene.index, scene.motion.preset, picture))} className="ws-focus h-6 rounded px-2 text-ink-muted hover:bg-ed-raised hover:text-ink disabled:opacity-50">
+        <button type="button" disabled={state.locked || !spec} onClick={() => actions.edit(`reset the move of scene ${scene.index + 1}`, (timeline) => applyPreset(timeline, scene.index, scene.motion.preset, picture))} className={linkButton}>
           Reset
         </button>
       </div>
@@ -206,7 +324,6 @@ function MotionSection({ scene, open, onToggle }: { scene: TimelineScene; open: 
         </select>
       </Row>
       {scale > 160 ? <p className="text-[11px] text-warn">Very close: the picture may look soft at 1080p.</p> : null}
-      {custom ? null : null}
     </Section>
   );
 }
@@ -291,12 +408,37 @@ function NarrationSection({ scene, open, onToggle }: { scene: TimelineScene; ope
   );
 }
 
+/** A clip scene's clip: speed, where in the file it starts, its sound. */
+function ClipSection({ scene, open, onToggle }: { scene: TimelineScene; open: boolean; onToggle: () => void }) {
+  const { state, actions } = useEditor();
+  const clip = scene.clip;
+  if (!clip) return null;
+  const span = sourceSpan({ in_s: clip.in_s, speed: clip.speed, start_s: scene.start_s, end_s: scene.end_s });
+  const over = clip.duration_s !== null && span[1] > clip.duration_s + 0.05;
+  return (
+    <Section title="Clip" summary={`${clip.speed}x · from ${clock(clip.in_s)}${clip.keep_sound ? " · with sound" : ""}`} open={open} onToggle={onToggle}>
+      <SpeedRow value={clip.speed} disabled={state.locked} onChange={(speed) => actions.edit(`set the speed of scene ${scene.index + 1}`, (doc) => setSceneClip(doc, scene.index, { speed }))} />
+      <Row label="From">
+        <NumberBox value={Math.round(clip.in_s * 100) / 100} min={0} max={clip.duration_s !== null ? Math.max(0, clip.duration_s - 0.1) : undefined} step={0.1} suffix="s into the file" disabled={state.locked} onCommit={(in_s) => actions.edit(`change where scene ${scene.index + 1} starts in its clip`, (doc) => setSceneClip(doc, scene.index, { in_s }))} />
+      </Row>
+      <p className={cn("text-[11px]", over ? "text-warn" : "text-ink-faint")}>
+        Uses {clock(span[0])} to {clock(span[1])} of the file{clip.duration_s !== null ? ` (${clock(clip.duration_s)} long)` : ""}. {over ? "The clip runs out before the scene ends: its last frame holds." : "The scene's length is set by the narration or the Length field."}
+      </p>
+      <label className="flex items-center gap-2 text-[11px] text-ink">
+        <input type="checkbox" className="accent-accent" checked={clip.keep_sound} disabled={state.locked} onChange={(event) => actions.edit(event.target.checked ? `keep the sound of scene ${scene.index + 1}` : `mute scene ${scene.index + 1}`, (doc) => setSceneClip(doc, scene.index, { keep_sound: event.target.checked }))} />
+        Keep the clip's own sound
+      </label>
+      <SliderRow label="Volume" value={clip.gain_db} min={-30} max={12} step={0.5} disabled={state.locked || !clip.keep_sound} onChange={(gain_db) => actions.edit(`change the volume of scene ${scene.index + 1}`, (doc) => setSceneClip(doc, scene.index, { gain_db }))} format={(v) => `${v > 0 ? "+" : ""}${v} dB`} />
+    </Section>
+  );
+}
+
 // ---- the inspector by selection ----------------------------------------------------------------
 
 function SceneInspector({ index }: { index: number }) {
   const { state, actions } = useEditor();
   const scene = state.timeline.scenes[index];
-  const { open, toggle } = useOpenSections(["picture", "motion", "transition", "popup"]);
+  const { open, toggle } = useOpenSections(["picture", "clip", "motion", "transition", "popup"]);
   const [menu, setMenu] = useState(false);
   const menuRef = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
@@ -310,15 +452,16 @@ function SceneInspector({ index }: { index: number }) {
   const popup = state.timeline.popups.find((item) => item.scene === index);
   const length = scene.end_s - scene.start_s;
   const src = picture?.thumb_url ?? projectMediaUrl(state.projectId, scene.image || sceneImageFile(index));
-  const file = scene.image.split("/").at(-1) ?? "";
+  const file = scene.clip ? (scene.clip.path.split("/").at(-1) ?? scene.clip.path) : (scene.image.split("/").at(-1) ?? "");
   const playhead = state.timeStore.get();
+  const ripple = state.timingSource === "scenes";
   const run = (label: string, result: { timeline: typeof state.timeline; note: string | null }) => {
     if (result.note) actions.notify("info", result.note);
     else actions.edit(label, () => result.timeline);
   };
   return (
     <>
-      <Header title={sceneTitle(scene, state.sentences)} subtitle={`${clock(scene.start_s)} to ${clock(scene.end_s)} · ${seconds(length)} · ${scene.sentence_ids.length} sentence${scene.sentence_ids.length === 1 ? "" : "s"}`}>
+      <Header title={sceneTitle(scene, state.sentences)} subtitle={`${clock(scene.start_s)} to ${clock(scene.end_s)} · ${seconds(length)} · ${scene.clip ? "a clip" : "a picture"}${scene.sentence_ids.length > 0 && !ripple ? ` · ${scene.sentence_ids.length} sentence${scene.sentence_ids.length === 1 ? "" : "s"}` : ""}`}>
         <button type="button" disabled={state.locked} onClick={() => actions.edit(scene.locked ? `unlock scene ${index + 1}` : `lock scene ${index + 1}`, (timeline) => setLocked(timeline, index, !scene.locked))} className="ws-focus grid size-7 place-items-center rounded text-ink-faint hover:bg-ed-raised hover:text-ink" title={scene.locked ? "Unlock: a rebuild may change this scene again" : "Lock: a rebuild keeps this scene as it is"}>
           {scene.locked ? <Lock className="size-4" aria-hidden /> : <Unlock className="size-4" aria-hidden />}
         </button>
@@ -344,20 +487,29 @@ function SceneInspector({ index }: { index: number }) {
           ) : null}
         </div>
       </Header>
-      <Section title="Picture" summary={file} open={open.has("picture")} onToggle={() => toggle("picture")}>
+      <Section title={scene.clip ? "Clip file" : "Picture"} summary={file} open={open.has("picture")} onToggle={() => toggle("picture")}>
         <div className="flex items-center gap-2">
           <div className="h-[54px] w-24 shrink-0 overflow-hidden rounded bg-black">{src ? <img src={src} alt="" className="size-full object-cover" /> : null}</div>
           <div className="min-w-0 text-[11px]">
             <p className="truncate text-ink">{file}</p>
             <p className="text-ink-faint">{picture ? `${picture.width} x ${picture.height}` : ""}</p>
-            <p className="text-ink-faint">Fit: cover</p>
+            <p className="text-ink-faint">{scene.clip ? "Fills the frame unless the Frame section says otherwise" : "Fit: cover (the camera move picks the view)"}</p>
           </div>
         </div>
+        <Row label="Length">
+          <NumberBox value={Math.round(length * 10) / 10} min={ripple ? 0.5 : 2} step={0.1} suffix={ripple ? "s (moves everything after it)" : "s (moves the next cut)"} disabled={state.locked} onCommit={(value) => run(`set the length of scene ${index + 1}`, setSceneLength(state.timeline, index, value, state.sentences, ripple ? "ripple" : "roll"))} />
+        </Row>
         <FilePickButton accept={MEDIA_ACCEPT} size="sm" variant="secondary" disabled={state.locked} onPick={(file) => void actions.replacePicture(index, file)} title="Replace this picture or clip">
           Replace...
         </FilePickButton>
       </Section>
-      <MotionSection scene={scene} open={open.has("motion")} onToggle={() => toggle("motion")} />
+      {scene.clip ? <ClipSection scene={scene} open={open.has("clip")} onToggle={() => toggle("clip")} /> : null}
+      {scene.clip ? (
+        <FrameSection frame={scene.frame ?? defaultFrame("cover")} disabled={state.locked} open={open.has("frame")} onToggle={() => toggle("frame")} onChange={(patch) => actions.edit(`change the frame of scene ${index + 1}`, (doc) => setSceneFrame(doc, index, patch))} />
+      ) : (
+        <MotionSection scene={scene} open={open.has("motion")} onToggle={() => toggle("motion")} />
+      )}
+      <AdjustSection adjust={scene.adjust} disabled={state.locked} open={open.has("adjust")} onToggle={() => toggle("adjust")} onChange={(patch) => actions.edit(`adjust the colour of scene ${index + 1}`, (doc) => setSceneAdjust(doc, index, patch))} />
       <TransitionSection index={index} open={open.has("transition")} onToggle={() => toggle("transition")} />
       <Section title="Popup" summary={popup ? `"${popup.text}"` : "None"} open={open.has("popup")} onToggle={() => toggle("popup")}>
         {popup ? (
@@ -368,7 +520,176 @@ function SceneInspector({ index }: { index: number }) {
           </button>
         )}
       </Section>
-      <NarrationSection scene={scene} open={open.has("narration")} onToggle={() => toggle("narration")} />
+      {!ripple ? <NarrationSection scene={scene} open={open.has("narration")} onToggle={() => toggle("narration")} /> : null}
+    </>
+  );
+}
+
+function LayerClipInspector({ id }: { id: string }) {
+  const { state, actions } = useEditor();
+  const found = findLayerClip(state.timeline, id);
+  const { open, toggle } = useOpenSections(["time", "frame"]);
+  if (!found) return <Header title="Layer clip" subtitle="This clip is gone." />;
+  const { layer, clip } = found;
+  const disabled = state.locked || layer.locked;
+  const source = state.sources.get(clip.source);
+  const thumb = source?.thumb_url ?? state.media?.items.find((item) => item.path === clip.source)?.thumb_url ?? null;
+  const span = sourceSpan(clip);
+  const length = clip.end_s - clip.start_s;
+  const edit = (label: string, patch: Partial<Omit<typeof clip, "id">>) => actions.edit(label, (doc) => updateLayerClip(doc, id, patch));
+  return (
+    <>
+      <Header title={clip.name || clip.source.split("/").at(-1) || "Layer clip"} subtitle={`On ${layer.name} · ${clock(clip.start_s)} to ${clock(clip.end_s)} · ${seconds(length)}${layer.locked ? " · the layer is locked" : ""}`}>
+        <button type="button" disabled={disabled} onClick={() => { actions.edit("remove a layer clip", (doc) => removeLayerClip(doc, id)); actions.select({ kind: "none" }); }} className="ws-focus grid size-7 place-items-center rounded text-ink-faint hover:bg-fail/10 hover:text-fail disabled:opacity-50" title="Remove this clip from the layer" aria-label="Remove">
+          <Trash2 className="size-4" aria-hidden />
+        </button>
+      </Header>
+      <div className="flex items-center gap-2 border-b border-ed-line px-3 py-2">
+        <div className={cn("shrink-0 overflow-hidden rounded bg-black", state.timeline.aspect === "9:16" ? "h-16 w-9" : "h-[54px] w-24")}>{thumb ? <img src={thumb} alt="" className="size-full object-cover" /> : null}</div>
+        <div className="min-w-0 text-[11px]">
+          <p className="truncate text-ink">{clip.source.split("/").at(-1)}</p>
+          <p className="text-ink-faint">{clip.kind === "clip" ? "A clip" : "A picture"}{source && source.width > 0 ? ` · ${source.width} x ${source.height}` : ""}{clip.duration_s !== null ? ` · ${clock(clip.duration_s)} long` : ""}</p>
+        </div>
+      </div>
+      <Section title="Time" summary={`${clock(clip.start_s)} · ${seconds(length)}${clip.kind === "clip" ? ` · ${clip.speed}x` : ""}`} open={open.has("time")} onToggle={() => toggle("time")}>
+        <Row label="Start">
+          <NumberBox value={Math.round(clip.start_s * 100) / 100} min={0} step={0.1} suffix="s" disabled={disabled} onCommit={(value) => actions.edit("move a layer clip", (doc) => updateLayerClip(doc, id, { start_s: value, end_s: value + length }))} />
+        </Row>
+        <Row label="Length">
+          <NumberBox value={Math.round(length * 100) / 100} min={MIN_CLIP_S} step={0.1} suffix="s" disabled={disabled} onCommit={(value) => actions.edit("trim a layer clip", (doc) => trimLayerClip(doc, id, "end", clip.start_s + value))} />
+        </Row>
+        {clip.kind === "clip" ? (
+          <>
+            <SpeedRow value={clip.speed} disabled={disabled} onChange={(speed) => edit("set the speed of a layer clip", { speed })} />
+            <Row label="From">
+              <NumberBox value={Math.round(clip.in_s * 100) / 100} min={0} step={0.1} suffix="s into the file" disabled={disabled} onCommit={(in_s) => edit("change where a layer clip starts in its file", { in_s })} />
+            </Row>
+            <p className="text-[11px] text-ink-faint">Uses {clock(span[0])} to {clock(span[1])} of the file.{clip.duration_s !== null && span[1] > clip.duration_s + 0.05 ? " The clip runs out before the end: its last frame holds." : ""}</p>
+          </>
+        ) : null}
+      </Section>
+      <FrameSection frame={clip.frame} disabled={disabled} open={open.has("frame")} onToggle={() => toggle("frame")} onChange={(patch) => actions.edit("change the frame of a layer clip", (doc) => updateLayerClip(doc, id, { frame: patch === null ? { ...defaultFrame(clip.frame.fit) } : { ...clip.frame, ...patch } }))} />
+      <AdjustSection adjust={clip.adjust} disabled={disabled} open={open.has("adjust")} onToggle={() => toggle("adjust")} onChange={(patch) => actions.edit("adjust the colour of a layer clip", (doc) => updateLayerClip(doc, id, { adjust: patch === null ? defaultAdjust() : { ...clip.adjust, ...patch } }))} />
+      {clip.kind === "clip" ? (
+        <Section title="Sound" summary={clip.keep_sound ? `On, ${clip.gain_db} dB` : "Muted"} open={open.has("sound")} onToggle={() => toggle("sound")}>
+          <label className="flex items-center gap-2 text-[11px] text-ink">
+            <input type="checkbox" className="accent-accent" checked={clip.keep_sound} disabled={disabled} onChange={(event) => edit(event.target.checked ? "keep the sound of a layer clip" : "mute a layer clip", { keep_sound: event.target.checked })} />
+            Keep the clip's own sound
+          </label>
+          <SliderRow label="Volume" value={clip.gain_db} min={-30} max={12} step={0.5} disabled={disabled || !clip.keep_sound} onChange={(gain_db) => edit("change the volume of a layer clip", { gain_db })} format={(v) => `${v > 0 ? "+" : ""}${v} dB`} />
+        </Section>
+      ) : null}
+      <p className="px-3 py-2 text-[11px] text-ink-faint">Drag the clip along its lane to move it; drag its edges to trim. S splits it at the playhead.</p>
+    </>
+  );
+}
+
+function AudioClipInspector({ id }: { id: string }) {
+  const { state, actions } = useEditor();
+  const found = findAudioClip(state.timeline, id);
+  const { open, toggle } = useOpenSections(["time", "sound"]);
+  if (!found) return <Header title="Sound clip" subtitle="This clip is gone." />;
+  const { track, clip } = found;
+  const disabled = state.locked;
+  const length = clip.end_s - clip.start_s;
+  const span = sourceSpan(clip);
+  const edit = (label: string, patch: Partial<Omit<typeof clip, "id">>) => actions.edit(label, (doc) => updateAudioClip(doc, id, patch));
+  return (
+    <>
+      <Header title={clip.name || clip.source.split("/").at(-1) || "Sound clip"} subtitle={`On ${track.name}${track.muted ? " (muted)" : ""} · ${clock(clip.start_s)} to ${clock(clip.end_s)} · ${seconds(length)}`}>
+        <button type="button" disabled={disabled} onClick={() => { actions.edit("remove a sound clip", (doc) => removeAudioClip(doc, id)); actions.select({ kind: "none" }); }} className="ws-focus grid size-7 place-items-center rounded text-ink-faint hover:bg-fail/10 hover:text-fail disabled:opacity-50" title="Remove this clip from the track" aria-label="Remove">
+          <Trash2 className="size-4" aria-hidden />
+        </button>
+      </Header>
+      {clip.text ? (
+        <div className="border-b border-ed-line px-3 py-2 text-[11px]">
+          <p className="text-ink-faint">An AI voice{clip.voice ? ` (${clip.voice})` : ""}. It says:</p>
+          <p className="mt-1 max-h-24 overflow-y-auto text-ink">{clip.text}</p>
+        </div>
+      ) : null}
+      <Section title="Time" summary={`${clock(clip.start_s)} · ${seconds(length)} · ${clip.speed}x`} open={open.has("time")} onToggle={() => toggle("time")}>
+        <Row label="Start">
+          <NumberBox value={Math.round(clip.start_s * 100) / 100} min={0} step={0.1} suffix="s" disabled={disabled} onCommit={(value) => actions.edit("move a sound clip", (doc) => updateAudioClip(doc, id, { start_s: value, end_s: value + length }))} />
+        </Row>
+        <Row label="Length">
+          <NumberBox value={Math.round(length * 100) / 100} min={MIN_CLIP_S} step={0.1} suffix="s" disabled={disabled} onCommit={(value) => actions.edit("trim a sound clip", (doc) => trimAudioClip(doc, id, "end", clip.start_s + value))} />
+        </Row>
+        <SpeedRow value={clip.speed} disabled={disabled} onChange={(speed) => edit("set the speed of a sound clip", { speed })} max={clip.voice ? 2 : 4} />
+        <Row label="From">
+          <NumberBox value={Math.round(clip.in_s * 100) / 100} min={0} step={0.1} suffix="s into the file" disabled={disabled} onCommit={(in_s) => edit("change where a sound clip starts in its file", { in_s })} />
+        </Row>
+        <p className="text-[11px] text-ink-faint">Plays {clock(span[0])} to {clock(span[1])} of the file{clip.duration_s !== null ? ` (${clock(clip.duration_s)} long)` : ""}. {clip.voice ? "A voice sounds natural up to about 1.5x." : ""}</p>
+      </Section>
+      <Section title="Sound" summary={`${clip.gain_db > 0 ? "+" : ""}${clip.gain_db} dB · fades ${clip.fade_in_s} s / ${clip.fade_out_s} s`} open={open.has("sound")} onToggle={() => toggle("sound")}>
+        <SliderRow label="Volume" value={clip.gain_db} min={-30} max={12} step={0.5} disabled={disabled} onChange={(gain_db) => edit("change the volume of a sound clip", { gain_db })} format={(v) => `${v > 0 ? "+" : ""}${v} dB`} />
+        <Row label="Fade in">
+          <NumberBox value={clip.fade_in_s} min={0} max={10} step={0.1} suffix="s" disabled={disabled} onCommit={(fade_in_s) => edit("change the fade of a sound clip", { fade_in_s })} />
+        </Row>
+        <Row label="Fade out">
+          <NumberBox value={clip.fade_out_s} min={0} max={10} step={0.1} suffix="s" disabled={disabled} onCommit={(fade_out_s) => edit("change the fade of a sound clip", { fade_out_s })} />
+        </Row>
+        <p className="text-[11px] text-ink-faint">The music still dips under the narration only; a sound clip plays at its own volume.</p>
+      </Section>
+    </>
+  );
+}
+
+function LayerInspector({ id }: { id: string }) {
+  const { state, actions } = useEditor();
+  const layer = state.timeline.layers.find((item) => item.id === id);
+  const [name, setName] = useState(layer?.name ?? "");
+  useEffect(() => setName(layer?.name ?? ""), [id, layer?.name]);
+  if (!layer) return <Header title="Layer" subtitle="This layer is gone." />;
+  const position = state.timeline.layers.indexOf(layer);
+  return (
+    <>
+      <Header title={layer.name} subtitle={`${layer.clips.length} clip${layer.clips.length === 1 ? "" : "s"} · ${position === state.timeline.layers.length - 1 ? "the top layer" : `layer ${position + 1} of ${state.timeline.layers.length}`}`}>
+        <button type="button" disabled={state.locked} onClick={() => { actions.edit(`remove ${layer.name}`, (doc) => removeLayer(doc, id)); actions.select({ kind: "none" }); }} className="ws-focus grid size-7 place-items-center rounded text-ink-faint hover:bg-fail/10 hover:text-fail disabled:opacity-50" title="Remove this layer and its clips" aria-label="Remove">
+          <Trash2 className="size-4" aria-hidden />
+        </button>
+      </Header>
+      <div className="flex flex-col gap-2 px-3 py-3">
+        <Row label="Name">
+          <input value={name} disabled={state.locked} onChange={(event) => setName(event.target.value)} onBlur={() => name.trim() && name !== layer.name && actions.edit("rename a layer", (doc) => updateLayer(doc, id, { name: name.trim() }))} onKeyDown={(event) => { if (event.key === "Enter") (event.target as HTMLInputElement).blur(); }} className={control} />
+        </Row>
+        <label className="flex items-center gap-2 text-[11px] text-ink">
+          <input type="checkbox" className="accent-accent" checked={layer.visible} disabled={state.locked} onChange={(event) => actions.edit(event.target.checked ? `show ${layer.name}` : `hide ${layer.name}`, (doc) => updateLayer(doc, id, { visible: event.target.checked }))} />
+          Shown in the video
+        </label>
+        <label className="flex items-center gap-2 text-[11px] text-ink">
+          <input type="checkbox" className="accent-accent" checked={layer.locked} disabled={state.locked} onChange={(event) => actions.edit(event.target.checked ? `lock ${layer.name}` : `unlock ${layer.name}`, (doc) => updateLayer(doc, id, { locked: event.target.checked }))} />
+          Locked (its clips cannot be moved)
+        </label>
+        <p className="text-[11px] text-ink-faint">Layers sit over the scenes and under the popups and captions. Drop pictures and clips from Media onto this lane, or press "Add as a layer".</p>
+      </div>
+    </>
+  );
+}
+
+function TrackInspector({ id }: { id: string }) {
+  const { state, actions } = useEditor();
+  const track = state.timeline.audio_tracks.find((item) => item.id === id);
+  const [name, setName] = useState(track?.name ?? "");
+  useEffect(() => setName(track?.name ?? ""), [id, track?.name]);
+  if (!track) return <Header title="Sound track" subtitle="This track is gone." />;
+  return (
+    <>
+      <Header title={track.name} subtitle={`${track.clips.length} clip${track.clips.length === 1 ? "" : "s"}${track.muted ? " · muted" : ""}`}>
+        <button type="button" disabled={state.locked} onClick={() => { actions.edit(`remove ${track.name}`, (doc) => removeAudioTrack(doc, id)); actions.select({ kind: "none" }); }} className="ws-focus grid size-7 place-items-center rounded text-ink-faint hover:bg-fail/10 hover:text-fail disabled:opacity-50" title="Remove this track and its clips" aria-label="Remove">
+          <Trash2 className="size-4" aria-hidden />
+        </button>
+      </Header>
+      <div className="flex flex-col gap-2 px-3 py-3">
+        <Row label="Name">
+          <input value={name} disabled={state.locked} onChange={(event) => setName(event.target.value)} onBlur={() => name.trim() && name !== track.name && actions.edit("rename a sound track", (doc) => updateAudioTrack(doc, id, { name: name.trim() }))} onKeyDown={(event) => { if (event.key === "Enter") (event.target as HTMLInputElement).blur(); }} className={control} />
+        </Row>
+        <label className="flex items-center gap-2 text-[11px] text-ink">
+          <input type="checkbox" className="accent-accent" checked={track.muted} disabled={state.locked} onChange={(event) => actions.edit(event.target.checked ? `mute ${track.name}` : `unmute ${track.name}`, (doc) => updateAudioTrack(doc, id, { muted: event.target.checked }))} />
+          Muted (left out of the video)
+        </label>
+        <SliderRow label="Volume" value={track.gain_db} min={-30} max={12} step={0.5} disabled={state.locked} onChange={(gain_db) => actions.edit(`change the volume of ${track.name}`, (doc) => updateAudioTrack(doc, id, { gain_db }))} format={(v) => `${v > 0 ? "+" : ""}${v} dB`} />
+        <p className="text-[11px] text-ink-faint">Every clip on the track plays at its own volume plus this one. Drop sound files from Media onto this lane, or press "Add as a sound".</p>
+      </div>
     </>
   );
 }
@@ -508,7 +829,7 @@ function MusicInspector() {
   const name = music.path ? (music.path.split(/[\\/]/).at(-1) ?? music.path) : "No music";
   return (
     <>
-      <Header title="Music" subtitle={music.path ? name : "Pick a track under Library, Music"} />
+      <Header title="Music" subtitle={music.path ? name : "Pick a sound file under Media and press Use as music"} />
       <div className="flex flex-col gap-2 px-3 py-3">
         <Row label="Volume">
           <span className="flex items-center gap-2">
@@ -574,9 +895,11 @@ function VideoInspector() {
   const index = sceneIndexAt(state.timeline, time);
   const scene = state.timeline.scenes[index];
   const { open, toggle } = useOpenSections(["captions", "output"]);
+  const layers = state.timeline.layers.length;
+  const tracks = state.timeline.audio_tracks.length;
   return (
     <>
-      <Header title="Video" subtitle={scene ? `Under the playhead: ${sceneTitle(scene, state.sentences)}` : "Nothing selected"}>
+      <Header title="Video" subtitle={scene ? `Under the playhead: ${sceneTitle(scene, state.sentences)}` : state.timeline.scenes.length === 0 ? "No scenes yet: import files under Media" : "Nothing selected"}>
         {scene ? (
           <button type="button" onClick={() => actions.select({ kind: "scene", index })} className="ws-focus h-7 rounded border border-ed-line bg-ed-raised px-2 text-[11px] text-ink hover:bg-ed-raised-hi">
             Select
@@ -597,6 +920,10 @@ function VideoInspector() {
       <Section title="Output" summary={state.payload.presets.map(renderPresetLabel).join(", ") || "No size ticked"} open={open.has("output")} onToggle={() => toggle("output")}>
         <p className="text-[11px] text-ink-muted">Sizes ticked for the render: {state.payload.presets.map(renderPresetLabel).join(", ") || "none"}. Change them in the Render menu.</p>
         <p className="text-[11px] text-ink-faint">{state.timeline.width} x {state.timeline.height}, {state.fps} fps, {clock(state.duration)}.</p>
+      </Section>
+      <Section title="Layers and sound" summary={`${layers} layer${layers === 1 ? "" : "s"}, ${tracks} sound track${tracks === 1 ? "" : "s"}`} open={open.has("layers")} onToggle={() => toggle("layers")}>
+        <p className="text-[11px] text-ink-muted">{layers} layer{layers === 1 ? "" : "s"} over the scenes and {tracks} sound track{tracks === 1 ? "" : "s"} under the narration. Add more with the toolbar buttons of the timeline; click a lane's name to open it here.</p>
+        <p className="text-[11px] text-ink-faint">{state.timingSource === "scenes" ? "No narration: each scene has its own length (the Length field moves everything after it)." : "With a narration, the scenes follow the sentences; a scene's Length moves the next cut."}</p>
       </Section>
       <Section title="Music" summary={state.timeline.music.path ? "On" : "None"} open={open.has("music")} onToggle={() => toggle("music")}>
         <button type="button" onClick={() => actions.select({ kind: "music" })} className="ws-focus w-fit text-[11px] text-accent-text hover:underline">
@@ -636,6 +963,18 @@ export function Inspector() {
       break;
     case "marker":
       body = <MarkerInspector key={selection.id} id={selection.id} />;
+      break;
+    case "layerclip":
+      body = <LayerClipInspector key={selection.id} id={selection.id} />;
+      break;
+    case "audioclip":
+      body = <AudioClipInspector key={selection.id} id={selection.id} />;
+      break;
+    case "layer":
+      body = <LayerInspector key={selection.id} id={selection.id} />;
+      break;
+    case "track":
+      body = <TrackInspector key={selection.id} id={selection.id} />;
       break;
     default:
       body = <VideoInspector />;

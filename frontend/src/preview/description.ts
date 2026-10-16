@@ -18,6 +18,7 @@
  * reference (src/preview/__tests__/description.test.ts).
  */
 import { voiceClips } from "./audio";
+import { IDENTITY_FRAME, adjustOf, frameOf } from "./frame";
 import { MotionPath, coverRegion, floorDiv, pyRound } from "./motion";
 import { frameTime, transitionEase } from "./transitions/easing";
 import { fadeOutColour, resolveTransition, type TransitionCatalogue } from "./transitions/registry";
@@ -28,6 +29,7 @@ import {
   type CutDesc,
   type FrameState,
   type GainCurve,
+  type LayerClipDesc,
   type PopupAnim,
   type PopupDesc,
   type PreviewBundle,
@@ -37,6 +39,7 @@ import {
   type RenderSettings,
   type SceneDesc,
   type SceneRef,
+  type SoundClipDesc,
   type VoiceClip,
 } from "./types";
 
@@ -157,6 +160,63 @@ function describeCueWords(bundle: PreviewBundle): Map<string, PreviewWord[]> {
   return words;
 }
 
+/** v0.2: the layer clips of the visible layers, bottom layer first (docs/CONTRACT-v0.2.md 7). */
+function describeLayers(bundle: PreviewBundle, projectId: string, options: DescriptionOptions): LayerClipDesc[] {
+  const fileUrl = options.fileUrl ?? defaultFileUrl;
+  const sizes = new Map<string, [number, number]>();
+  for (const source of bundle.sources ?? []) {
+    if ((source.width ?? 0) > 0 && (source.height ?? 0) > 0) sizes.set(source.path, [source.width!, source.height!]);
+  }
+  const out: LayerClipDesc[] = [];
+  (bundle.timeline.layers ?? []).forEach((layer, position) => {
+    if (layer.visible === false) return;
+    for (const clip of layer.clips ?? []) {
+      if (!clip.source || !(clip.end_s > clip.start_s)) continue;
+      out.push({
+        key: `${layer.id ?? position}:${clip.id ?? `${clip.source}@${clip.start_s}`}`,
+        layer: position,
+        source: clip.source,
+        url: fileUrl(projectId, clip.source),
+        kind: clip.kind === "clip" ? "clip" : "picture",
+        startS: clip.start_s,
+        endS: clip.end_s,
+        inS: Math.max(0, Number(clip.in_s ?? 0)),
+        speed: Math.min(4, Math.max(0.25, Number(clip.speed ?? 1) || 1)),
+        keepSound: clip.keep_sound === true,
+        gainDb: Number(clip.gain_db ?? 0),
+        frame: frameOf(clip.frame) ?? IDENTITY_FRAME,
+        adjust: adjustOf(clip.adjust),
+        size: sizes.get(clip.source) ?? null,
+      });
+    }
+  });
+  return out;
+}
+
+/** v0.2: the sound clips of the tracks that are not muted. */
+function describeSounds(bundle: PreviewBundle, projectId: string, options: DescriptionOptions): SoundClipDesc[] {
+  const fileUrl = options.fileUrl ?? defaultFileUrl;
+  const out: SoundClipDesc[] = [];
+  (bundle.timeline.audio_tracks ?? []).forEach((track, position) => {
+    if (track.muted) return;
+    for (const clip of track.clips ?? []) {
+      if (!clip.source || !(clip.end_s > clip.start_s)) continue;
+      out.push({
+        key: `${track.id ?? position}:${clip.id ?? `${clip.source}@${clip.start_s}`}`,
+        url: fileUrl(projectId, clip.source),
+        startS: clip.start_s,
+        endS: clip.end_s,
+        inS: Math.max(0, Number(clip.in_s ?? 0)),
+        speed: Math.min(4, Math.max(0.25, Number(clip.speed ?? 1) || 1)),
+        gainDb: Number(clip.gain_db ?? 0) + Number(track.gain_db ?? 0),
+        fadeInS: Math.max(0, Number(clip.fade_in_s ?? 0)),
+        fadeOutS: Math.max(0, Number(clip.fade_out_s ?? 0)),
+      });
+    }
+  });
+  return out;
+}
+
 /** The whole render description of a bundle (pure). */
 export function buildDescription(bundle: PreviewBundle, options: DescriptionOptions = {}): RenderDescription {
   const timeline = bundle.timeline;
@@ -192,6 +252,8 @@ export function buildDescription(bundle: PreviewBundle, options: DescriptionOpti
     estimatedTiming: Boolean(bundle.timing_estimated),
     virtual: Boolean(bundle.virtual),
     cueWords: describeCueWords(bundle),
+    layers: describeLayers(bundle, projectId, options),
+    sounds: describeSounds(bundle, projectId, options),
   };
   base.popups = options.popupsEnabled === false ? [] : describePopups(timeline);
   base.cues = describeCues(timeline);
@@ -282,6 +344,17 @@ export function buildDescription(bundle: PreviewBundle, options: DescriptionOpti
       path,
       style: scene.motion.style === "parallax" ? "parallax" : "ken_burns",
       strength: Number(scene.motion.strength ?? 0.035),
+      clip: scene.clip?.path
+        ? {
+            url: (options.fileUrl ?? defaultFileUrl)(projectId, scene.clip.path),
+            inS: Math.max(0, Number(scene.clip.in_s ?? 0)),
+            speed: Math.min(4, Math.max(0.25, Number(scene.clip.speed ?? 1) || 1)),
+            keepSound: scene.clip.keep_sound === true,
+            gainDb: Number(scene.clip.gain_db ?? 0),
+          }
+        : null,
+      frame: scene.clip?.path ? frameOf(scene.frame) : null,
+      adjust: adjustOf(scene.adjust),
     };
     scenes.push(desc);
     outFrame += body;

@@ -10,6 +10,7 @@ import { parseEditPayload, type EditChoices, type EditReviewPayload } from "../t
 import type { TimingDoc } from "../types/timing";
 import { projectFileUrl } from "./files";
 import { queryKeys } from "./keys";
+import { setNarration, type NarrationInput } from "./media";
 import {
   addScene,
   applyEdits,
@@ -184,7 +185,12 @@ function useSceneMutation<Input>(projectId: string, run: (input: Input) => Promi
 }
 
 export function useAddScene(projectId: string) {
-  return useSceneMutation(projectId, ({ file, options }: { file: File; options?: AddSceneOptions }) => addScene(projectId, file, options));
+  return useSceneMutation(projectId, ({ file, options }: { file: File | string; options?: AddSceneOptions }) => addScene(projectId, file, options));
+}
+
+/** v0.2: a sound file (a library path or an upload) becomes the narration. */
+export function useSetNarration(projectId: string) {
+  return useSceneMutation(projectId, (input: NarrationInput) => setNarration(projectId, input));
 }
 
 export function useReplaceScenePicture(projectId: string) {

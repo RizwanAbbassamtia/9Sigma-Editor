@@ -467,7 +467,10 @@
     "sentence_ids": [
      "s1"
     ],
-    "edited": []
+    "edited": [],
+    "clip": null,
+    "frame": null,
+    "adjust": null
    },
    {
     "index": 1,
@@ -501,7 +504,10 @@
      "s2",
      "s3"
     ],
-    "edited": []
+    "edited": [],
+    "clip": null,
+    "frame": null,
+    "adjust": null
    },
    {
     "index": 2,
@@ -534,7 +540,10 @@
     "sentence_ids": [
      "s4"
     ],
-    "edited": []
+    "edited": [],
+    "clip": null,
+    "frame": null,
+    "adjust": null
    },
    {
     "index": 3,
@@ -567,7 +576,10 @@
     "sentence_ids": [
      "s5"
     ],
-    "edited": []
+    "edited": [],
+    "clip": null,
+    "frame": null,
+    "adjust": null
    }
   ],
   "popups": [
@@ -672,7 +684,9 @@
   "markers": [],
   "render": {
    "preview_gain_db": null
-  }
+  },
+  "layers": [],
+  "audio_tracks": []
  },
  "warnings": []
 }

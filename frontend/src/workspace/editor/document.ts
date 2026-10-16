@@ -10,7 +10,7 @@
  */
 import { MOTION_PRESETS, coverRegion, rectInPixels, type Rect } from "../../preview/motion";
 import type { BundlePicture, BundleSentence } from "../../types/preview";
-import type { CaptionCue, PixelRect, Timeline, TimelineMarker, TimelinePopup, TimelineScene } from "../../types/timeline";
+import { defaultAdjust, defaultFrame, type AudioClip, type AudioTrack, type CaptionCue, type ClipSource, type ColourAdjust, type FrameAdjust, type Layer, type LayerClip, type PixelRect, type Timeline, type TimelineMarker, type TimelinePopup, type TimelineScene } from "../../types/timeline";
 import type { TransitionCatalogue, TransitionCatalogueEntry, TransitionPack } from "../../types/storyboard";
 import { transitionDuration, transitionsInPack } from "../../types/storyboard";
 import type { ProjectFormat } from "../../types/project";
@@ -23,6 +23,10 @@ export const LONG_POPUP_S = 4;
 export const PAUSE_BREAK_S = 0.35;
 export const UNDO_LIMIT = 20;
 export const SNAP_PX = 8;
+/** v0.2: the shortest layer or sound clip, and the shortest scene in an edit without narration. */
+export const MIN_CLIP_S = 0.1;
+export const MIN_RIPPLE_SCENE_S = 0.5;
+export const DEFAULT_LAYER_PICTURE_S = 5;
 
 // ---- selection -----------------------------------------------------------------------------
 
@@ -35,7 +39,11 @@ export type Selection =
   | { kind: "sentence"; id: string }
   | { kind: "pause"; after: string }
   | { kind: "music" }
-  | { kind: "marker"; id: string };
+  | { kind: "marker"; id: string }
+  | { kind: "layerclip"; id: string }
+  | { kind: "audioclip"; id: string }
+  | { kind: "layer"; id: string }
+  | { kind: "track"; id: string };
 
 export const NO_SELECTION: Selection = { kind: "none" };
 
@@ -626,4 +634,396 @@ export function minorStep(major: number): number {
 
 export function clampZoom(pxPerSecond: number): number {
   return Math.max(2, Math.min(600, pxPerSecond));
+}
+
+// ---- v0.2: layers, sound tracks, frames, adjust, speed, picture time ---------------------------
+// (docs/CONTRACT-v0.2.md sections 3 and 4)
+
+/** Where the video ends: the end of the last scene (layers and sounds are cut off there). */
+export function videoEnd(timeline: Timeline): number {
+  return timeline.scenes.length > 0 ? timeline.scenes[timeline.scenes.length - 1]!.end_s : 0;
+}
+
+export interface ClipSourceInfo {
+  path: string;
+  kind: "picture" | "clip" | "audio" | "captions";
+  name: string;
+  duration_s: number | null;
+}
+
+interface Timed {
+  id: string;
+  start_s: number;
+  end_s: number;
+}
+
+/** `clip` with its start and end kept inside `[0, end]` and off its neighbours on the lane. */
+function fitInLane<T extends Timed>(clips: readonly T[], clip: T, end: number): T {
+  const others = clips.filter((item) => item.id !== clip.id);
+  const before = others.filter((item) => item.start_s < clip.start_s + 1e-6 && item.end_s > clip.start_s - 1e-6);
+  const previous = others.filter((item) => item.end_s <= clip.start_s + 1e-6).sort((a, b) => b.end_s - a.end_s)[0];
+  const next = others.filter((item) => item.start_s >= clip.end_s - 1e-6 || (item.start_s > clip.start_s && item.start_s < clip.end_s)).sort((a, b) => a.start_s - b.start_s)[0];
+  let start = Math.max(0, clip.start_s);
+  if (before.length > 0) start = Math.max(start, ...before.map((item) => item.end_s));
+  if (previous) start = Math.max(start, previous.end_s);
+  let stop = Math.min(end > 0 ? end : clip.end_s, clip.end_s);
+  if (next) stop = Math.min(stop, next.start_s);
+  if (stop - start < MIN_CLIP_S) stop = start + MIN_CLIP_S;
+  return { ...clip, start_s: round3(start), end_s: round3(stop) };
+}
+
+function roomAt<T extends Timed>(clips: readonly T[], t: number, wanted: number, end: number): { start: number; stop: number } | null {
+  const start = Math.max(0, t);
+  const next = clips.filter((item) => item.end_s > start + 1e-6).sort((a, b) => a.start_s - b.start_s)[0];
+  if (next && next.start_s < start + MIN_CLIP_S) return null;
+  const limit = Math.min(next ? next.start_s : Infinity, end > 0 ? end : Infinity);
+  const stop = Math.min(start + wanted, limit);
+  if (!Number.isFinite(stop) || stop - start < MIN_CLIP_S) return null;
+  return { start: round3(start), stop: round3(stop) };
+}
+
+function sorted<T extends Timed>(clips: readonly T[]): T[] {
+  return [...clips].sort((a, b) => a.start_s - b.start_s);
+}
+
+// layers
+
+export function addLayer(timeline: Timeline, name = ""): { timeline: Timeline; id: string } {
+  const id = freshId("layer");
+  const layer: Layer = { id, name: name || `Layer ${timeline.layers.length + 1}`, visible: true, locked: false, clips: [] };
+  return { timeline: { ...timeline, layers: [...timeline.layers, layer] }, id };
+}
+
+export function updateLayer(timeline: Timeline, id: string, patch: Partial<Omit<Layer, "clips" | "id">>): Timeline {
+  return { ...timeline, layers: timeline.layers.map((layer) => (layer.id === id ? { ...layer, ...patch } : layer)) };
+}
+
+export function removeLayer(timeline: Timeline, id: string): Timeline {
+  return { ...timeline, layers: timeline.layers.filter((layer) => layer.id !== id) };
+}
+
+export function findLayerClip(timeline: Timeline, id: string): { layer: Layer; clip: LayerClip } | null {
+  for (const layer of timeline.layers) {
+    const clip = layer.clips.find((item) => item.id === id);
+    if (clip) return { layer, clip };
+  }
+  return null;
+}
+
+function withLayer(timeline: Timeline, layerId: string, fn: (layer: Layer) => Layer): Timeline {
+  return { ...timeline, layers: timeline.layers.map((layer) => (layer.id === layerId ? fn(layer) : layer)) };
+}
+
+/**
+ * A picture or clip on a layer at `t` (the top layer, or `layerId`; a layer is made when there
+ * is none). A clip keeps its own length at its speed; a picture gets 5 s. The clip is cut to
+ * the room on the lane and to the end of the video.
+ */
+export function addLayerClip(timeline: Timeline, layerId: string | null, source: ClipSourceInfo, t: number): { timeline: Timeline; id: string; note: string | null } {
+  if (videoEnd(timeline) <= 0) return { timeline, id: "", note: "Add a picture or clip first; layers go over the scenes." };
+  let doc = timeline;
+  let target = layerId ? doc.layers.find((layer) => layer.id === layerId) : doc.layers[doc.layers.length - 1];
+  if (!target) {
+    const made = addLayer(doc);
+    doc = made.timeline;
+    target = doc.layers.find((layer) => layer.id === made.id);
+  }
+  if (!target) return { timeline, id: "", note: null };
+  const kind = source.kind === "clip" ? "clip" : "picture";
+  const wanted = kind === "clip" && source.duration_s ? source.duration_s : DEFAULT_LAYER_PICTURE_S;
+  const room = roomAt(target.clips, t, wanted, videoEnd(doc));
+  if (!room) return { timeline, id: "", note: `No room on ${target.name} at the playhead. Move the playhead to a free spot.` };
+  const id = freshId("lc");
+  const clip: LayerClip = {
+    id,
+    source: source.path,
+    kind,
+    name: source.name,
+    start_s: room.start,
+    end_s: room.stop,
+    in_s: 0,
+    speed: 1,
+    keep_sound: false,
+    gain_db: 0,
+    duration_s: source.duration_s,
+    frame: { ...defaultFrame("contain"), scale: 0.45, x: 0.24, y: 0.22 },
+    adjust: defaultAdjust(),
+  };
+  const layerIdFinal = target.id;
+  return { timeline: withLayer(doc, layerIdFinal, (layer) => ({ ...layer, clips: sorted([...layer.clips, clip]) })), id, note: null };
+}
+
+export function updateLayerClip(timeline: Timeline, id: string, patch: Partial<Omit<LayerClip, "id">>): Timeline {
+  const found = findLayerClip(timeline, id);
+  if (!found) return timeline;
+  const next = fitInLane(found.layer.clips, { ...found.clip, ...patch }, videoEnd(timeline));
+  return withLayer(timeline, found.layer.id, (layer) => ({ ...layer, clips: sorted(layer.clips.map((clip) => (clip.id === id ? next : clip))) }));
+}
+
+/** Moves the whole clip so it starts at `start` (its length kept; stopped by its neighbours). */
+export function moveLayerClip(timeline: Timeline, id: string, start: number): Timeline {
+  const found = findLayerClip(timeline, id);
+  if (!found) return timeline;
+  const length = found.clip.end_s - found.clip.start_s;
+  const others = found.layer.clips.filter((item) => item.id !== id);
+  let from = Math.max(0, start);
+  const end = videoEnd(timeline);
+  if (end > 0) from = Math.min(from, Math.max(0, end - length));
+  for (const other of sorted(others)) {
+    const overlaps = from < other.end_s && from + length > other.start_s;
+    if (!overlaps) continue;
+    // pushed to the nearer side of the clip in the way
+    from = Math.abs(from - (other.end_s)) < Math.abs(from + length - other.start_s) ? other.end_s : other.start_s - length;
+  }
+  if (from < 0) return timeline;
+  const moved: LayerClip = { ...found.clip, start_s: round3(from), end_s: round3(from + length) };
+  if (others.some((other) => moved.start_s < other.end_s - 1e-6 && moved.end_s > other.start_s + 1e-6)) return timeline;
+  return withLayer(timeline, found.layer.id, (layer) => ({ ...layer, clips: sorted(layer.clips.map((clip) => (clip.id === id ? moved : clip))) }));
+}
+
+/** Trims one edge to `t`; trimming the start of a clip advances where the file starts. */
+export function trimLayerClip(timeline: Timeline, id: string, edge: "start" | "end", t: number): Timeline {
+  const found = findLayerClip(timeline, id);
+  if (!found) return timeline;
+  const clip = found.clip;
+  if (edge === "start") {
+    const start = Math.min(round3(Math.max(0, t)), clip.end_s - MIN_CLIP_S);
+    const delta = start - clip.start_s;
+    const inS = clip.kind === "clip" ? Math.max(0, round3(clip.in_s + delta * clip.speed)) : clip.in_s;
+    return updateLayerClip(timeline, id, { start_s: start, in_s: inS });
+  }
+  return updateLayerClip(timeline, id, { end_s: Math.max(round3(t), clip.start_s + MIN_CLIP_S) });
+}
+
+export function removeLayerClip(timeline: Timeline, id: string): Timeline {
+  const found = findLayerClip(timeline, id);
+  if (!found) return timeline;
+  return withLayer(timeline, found.layer.id, (layer) => ({ ...layer, clips: layer.clips.filter((clip) => clip.id !== id) }));
+}
+
+export function splitLayerClip(timeline: Timeline, id: string, t: number): CutMove {
+  const found = findLayerClip(timeline, id);
+  if (!found) return { timeline, note: null };
+  const clip = found.clip;
+  const at = round3(t);
+  if (at - clip.start_s < MIN_CLIP_S || clip.end_s - at < MIN_CLIP_S) return { timeline, note: "Move the playhead inside the clip, away from its edges." };
+  const first: LayerClip = { ...clip, end_s: at };
+  const second: LayerClip = { ...clip, id: freshId("lc"), start_s: at, in_s: clip.kind === "clip" ? round3(clip.in_s + (at - clip.start_s) * clip.speed) : clip.in_s };
+  return { timeline: withLayer(timeline, found.layer.id, (layer) => ({ ...layer, clips: sorted(layer.clips.flatMap((item) => (item.id === id ? [first, second] : [item]))) })), note: null };
+}
+
+// sound tracks
+
+export function addAudioTrack(timeline: Timeline, name = "", kind: AudioTrack["kind"] = "sound"): { timeline: Timeline; id: string } {
+  const id = freshId("track");
+  const track: AudioTrack = { id, name: name || `Sound ${timeline.audio_tracks.length + 1}`, kind, muted: false, gain_db: 0, clips: [] };
+  return { timeline: { ...timeline, audio_tracks: [...timeline.audio_tracks, track] }, id };
+}
+
+export function updateAudioTrack(timeline: Timeline, id: string, patch: Partial<Omit<AudioTrack, "clips" | "id">>): Timeline {
+  return { ...timeline, audio_tracks: timeline.audio_tracks.map((track) => (track.id === id ? { ...track, ...patch } : track)) };
+}
+
+export function removeAudioTrack(timeline: Timeline, id: string): Timeline {
+  return { ...timeline, audio_tracks: timeline.audio_tracks.filter((track) => track.id !== id) };
+}
+
+export function findAudioClip(timeline: Timeline, id: string): { track: AudioTrack; clip: AudioClip } | null {
+  for (const track of timeline.audio_tracks) {
+    const clip = track.clips.find((item) => item.id === id);
+    if (clip) return { track, clip };
+  }
+  return null;
+}
+
+function withTrack(timeline: Timeline, trackId: string, fn: (track: AudioTrack) => AudioTrack): Timeline {
+  return { ...timeline, audio_tracks: timeline.audio_tracks.map((track) => (track.id === trackId ? fn(track) : track)) };
+}
+
+/** A sound file on a track at `t` (the first track with room, else a new one), its own length. */
+export function addAudioClip(timeline: Timeline, trackId: string | null, source: ClipSourceInfo & { text?: string; voice?: string }, t: number): { timeline: Timeline; id: string; note: string | null } {
+  if (videoEnd(timeline) <= 0) return { timeline, id: "", note: "Add a picture or clip first; sounds play under the scenes." };
+  let doc = timeline;
+  const wanted = source.duration_s && source.duration_s > 0 ? source.duration_s : DEFAULT_LAYER_PICTURE_S;
+  const end = videoEnd(doc);
+  let target: AudioTrack | undefined;
+  let room: { start: number; stop: number } | null = null;
+  if (trackId) {
+    target = doc.audio_tracks.find((track) => track.id === trackId);
+    room = target ? roomAt(target.clips, t, wanted, end) : null;
+    if (target && !room) return { timeline, id: "", note: `No room on ${target.name} at the playhead. Move the playhead to a free spot.` };
+  } else {
+    for (const track of doc.audio_tracks) {
+      room = roomAt(track.clips, t, wanted, end);
+      if (room) {
+        target = track;
+        break;
+      }
+    }
+  }
+  if (!target) {
+    const made = addAudioTrack(doc);
+    doc = made.timeline;
+    target = doc.audio_tracks.find((track) => track.id === made.id);
+    room = target ? roomAt(target.clips, t, wanted, end) : null;
+  }
+  if (!target || !room) return { timeline, id: "", note: end <= 0 ? "Add a picture or clip first; sounds play under the scenes." : "No room at the playhead." };
+  const id = freshId("ac");
+  const clip: AudioClip = {
+    id,
+    source: source.path,
+    name: source.name,
+    start_s: room.start,
+    end_s: room.stop,
+    in_s: 0,
+    speed: 1,
+    gain_db: 0,
+    fade_in_s: 0,
+    fade_out_s: 0,
+    duration_s: source.duration_s,
+    text: source.text ?? "",
+    voice: source.voice ?? "",
+  };
+  return { timeline: withTrack(doc, target.id, (track) => ({ ...track, clips: sorted([...track.clips, clip]) })), id, note: null };
+}
+
+export function updateAudioClip(timeline: Timeline, id: string, patch: Partial<Omit<AudioClip, "id">>): Timeline {
+  const found = findAudioClip(timeline, id);
+  if (!found) return timeline;
+  const next = fitInLane(found.track.clips, { ...found.clip, ...patch }, videoEnd(timeline));
+  return withTrack(timeline, found.track.id, (track) => ({ ...track, clips: sorted(track.clips.map((clip) => (clip.id === id ? next : clip))) }));
+}
+
+export function moveAudioClip(timeline: Timeline, id: string, start: number): Timeline {
+  const found = findAudioClip(timeline, id);
+  if (!found) return timeline;
+  const length = found.clip.end_s - found.clip.start_s;
+  const others = found.track.clips.filter((item) => item.id !== id);
+  let from = Math.max(0, start);
+  const end = videoEnd(timeline);
+  if (end > 0) from = Math.min(from, Math.max(0, end - length));
+  for (const other of sorted(others)) {
+    const overlaps = from < other.end_s && from + length > other.start_s;
+    if (!overlaps) continue;
+    from = Math.abs(from - other.end_s) < Math.abs(from + length - other.start_s) ? other.end_s : other.start_s - length;
+  }
+  if (from < 0) return timeline;
+  const moved: AudioClip = { ...found.clip, start_s: round3(from), end_s: round3(from + length) };
+  if (others.some((other) => moved.start_s < other.end_s - 1e-6 && moved.end_s > other.start_s + 1e-6)) return timeline;
+  return withTrack(timeline, found.track.id, (track) => ({ ...track, clips: sorted(track.clips.map((clip) => (clip.id === id ? moved : clip))) }));
+}
+
+export function trimAudioClip(timeline: Timeline, id: string, edge: "start" | "end", t: number): Timeline {
+  const found = findAudioClip(timeline, id);
+  if (!found) return timeline;
+  const clip = found.clip;
+  if (edge === "start") {
+    const start = Math.min(round3(Math.max(0, t)), clip.end_s - MIN_CLIP_S);
+    const delta = start - clip.start_s;
+    return updateAudioClip(timeline, id, { start_s: start, in_s: Math.max(0, round3(clip.in_s + delta * clip.speed)) });
+  }
+  return updateAudioClip(timeline, id, { end_s: Math.max(round3(t), clip.start_s + MIN_CLIP_S) });
+}
+
+export function removeAudioClip(timeline: Timeline, id: string): Timeline {
+  const found = findAudioClip(timeline, id);
+  if (!found) return timeline;
+  return withTrack(timeline, found.track.id, (track) => ({ ...track, clips: track.clips.filter((clip) => clip.id !== id) }));
+}
+
+export function splitAudioClip(timeline: Timeline, id: string, t: number): CutMove {
+  const found = findAudioClip(timeline, id);
+  if (!found) return { timeline, note: null };
+  const clip = found.clip;
+  const at = round3(t);
+  if (at - clip.start_s < MIN_CLIP_S || clip.end_s - at < MIN_CLIP_S) return { timeline, note: "Move the playhead inside the clip, away from its edges." };
+  const first: AudioClip = { ...clip, end_s: at, fade_out_s: 0 };
+  const second: AudioClip = { ...clip, id: freshId("ac"), start_s: at, in_s: round3(clip.in_s + (at - clip.start_s) * clip.speed), fade_in_s: 0 };
+  return { timeline: withTrack(timeline, found.track.id, (track) => ({ ...track, clips: sorted(track.clips.flatMap((item) => (item.id === id ? [first, second] : [item]))) })), note: null };
+}
+
+/** The seconds of the file a clip shows, at its speed (for the inspector's "uses ... of the file"). */
+export function sourceSpan(clip: { in_s: number; speed: number; start_s: number; end_s: number }): [number, number] {
+  return [clip.in_s, round3(clip.in_s + (clip.end_s - clip.start_s) * clip.speed)];
+}
+
+// scenes: frame, adjust, clip, length
+
+function withScene(timeline: Timeline, index: number, fn: (scene: TimelineScene) => TimelineScene): Timeline {
+  return { ...timeline, scenes: timeline.scenes.map((scene, i) => (i === index ? fn(scene) : scene)) };
+}
+
+export function setSceneFrame(timeline: Timeline, index: number, patch: Partial<FrameAdjust> | null): Timeline {
+  return withScene(timeline, index, (scene) => ({ ...scene, frame: patch === null ? null : { ...(scene.frame ?? defaultFrame("cover")), ...patch } }));
+}
+
+export function setSceneAdjust(timeline: Timeline, index: number, patch: Partial<ColourAdjust> | null): Timeline {
+  return withScene(timeline, index, (scene) => ({ ...scene, adjust: patch === null ? null : { ...(scene.adjust ?? defaultAdjust()), ...patch } }));
+}
+
+export function setSceneClip(timeline: Timeline, index: number, patch: Partial<ClipSource>): Timeline {
+  return withScene(timeline, index, (scene) => (scene.clip ? { ...scene, clip: { ...scene.clip, ...patch } } : scene));
+}
+
+/** Everything after `from` (seconds) moved by `delta`: later scenes, popups, captions, markers, layer and sound clips. */
+export function rippleAfter(timeline: Timeline, from: number, delta: number): Timeline {
+  const shift = (t: number) => (t >= from - 1e-6 ? round3(Math.max(0, t + delta)) : t);
+  const scenes = timeline.scenes.map((scene) => (scene.start_s >= from - 1e-6 ? { ...scene, start_s: shift(scene.start_s), end_s: shift(scene.end_s) } : scene));
+  const end = scenes.length > 0 ? scenes[scenes.length - 1]!.end_s : 0;
+  const clipTimes = <T extends Timed>(clip: T): T => {
+    if (clip.start_s >= from - 1e-6) return { ...clip, start_s: shift(clip.start_s), end_s: shift(clip.end_s) };
+    return clip.end_s > from ? { ...clip, end_s: Math.max(clip.start_s + MIN_CLIP_S, Math.min(end, round3(clip.end_s + delta))) } : clip;
+  };
+  return {
+    ...timeline,
+    scenes,
+    duration_s: end,
+    popups: timeline.popups.map((popup) => (popup.start_s >= from - 1e-6 ? { ...popup, start_s: shift(popup.start_s), end_s: shift(popup.end_s) } : popup)),
+    captions: { ...timeline.captions, cues: timeline.captions.cues.map((cue) => (cue.start_s >= from - 1e-6 ? { ...cue, start_s: shift(cue.start_s), end_s: shift(cue.end_s) } : cue)) },
+    markers: timeline.markers.map((marker) => ({ ...marker, t: shift(marker.t) })),
+    layers: timeline.layers.map((layer) => ({ ...layer, clips: layer.clips.map(clipTimes).filter((clip) => clip.end_s - clip.start_s >= MIN_CLIP_S && clip.start_s < end) })),
+    audio_tracks: timeline.audio_tracks.map((track) => ({ ...track, clips: track.clips.map(clipTimes).filter((clip) => clip.end_s - clip.start_s >= MIN_CLIP_S && clip.start_s < end) })),
+  };
+}
+
+/**
+ * The length of scene `index`: with a narration it is a rolling edit (the next cut moves, the
+ * v0.1 rules); without one (`ripple`) everything after the scene moves with its end.
+ */
+export function setSceneLength(timeline: Timeline, index: number, lengthS: number, sentences: readonly BundleSentence[], mode: "roll" | "ripple"): CutMove {
+  const scene = timeline.scenes[index];
+  if (!scene) return { timeline, note: null };
+  const current = scene.end_s - scene.start_s;
+  if (mode === "roll") {
+    if (index >= timeline.scenes.length - 1) return { timeline, note: "The last scene ends with the narration. Shorten a pause or move the cut before it instead." };
+    return moveCut(timeline, index, scene.start_s + lengthS, sentences);
+  }
+  const wanted = Math.max(MIN_RIPPLE_SCENE_S, round3(lengthS));
+  const delta = round3(wanted - current);
+  if (Math.abs(delta) < 0.001) return { timeline, note: null };
+  const widened = withScene(timeline, index, (item) => ({ ...item, end_s: round3(item.end_s + delta), edited: withField(item.edited, "times") }));
+  const after = scene.end_s;
+  const rest = rippleAfter({ ...widened, scenes: widened.scenes.map((item, i) => (i > index ? { ...item, start_s: round3(item.start_s + delta), end_s: round3(item.end_s + delta) } : item)) }, after + 1e-6, 0);
+  const moved: Timeline = {
+    ...rest,
+    popups: timeline.popups.map((popup) => (popup.scene > index ? { ...popup, start_s: round3(popup.start_s + delta), end_s: round3(popup.end_s + delta) } : popup)),
+    captions: { ...timeline.captions, cues: timeline.captions.cues.map((cue) => (cue.start_s >= after - 1e-6 ? { ...cue, start_s: round3(cue.start_s + delta), end_s: round3(cue.end_s + delta) } : cue)) },
+    markers: timeline.markers.map((marker) => (marker.t >= after - 1e-6 ? { ...marker, t: round3(marker.t + delta) } : marker)),
+    layers: timeline.layers.map((layer) => ({ ...layer, clips: layer.clips.map((clip) => (clip.start_s >= after - 1e-6 ? { ...clip, start_s: round3(clip.start_s + delta), end_s: round3(clip.end_s + delta) } : clip)) })),
+    audio_tracks: timeline.audio_tracks.map((track) => ({ ...track, clips: track.clips.map((clip) => (clip.start_s >= after - 1e-6 ? { ...clip, start_s: round3(clip.start_s + delta), end_s: round3(clip.end_s + delta) } : clip)) })),
+  };
+  const end = videoEnd(moved);
+  const trimmed: Timeline = {
+    ...moved,
+    duration_s: end,
+    scenes: clampedTransitions(moved.scenes),
+    layers: moved.layers.map((layer) => ({ ...layer, clips: layer.clips.filter((clip) => clip.start_s < end).map((clip) => ({ ...clip, end_s: Math.min(clip.end_s, end) })) })),
+    audio_tracks: moved.audio_tracks.map((track) => ({ ...track, clips: track.clips.filter((clip) => clip.start_s < end).map((clip) => ({ ...clip, end_s: Math.min(clip.end_s, end) })) })),
+  };
+  return { timeline: { ...trimmed, popups: clampPopups(trimmed) }, note: null };
+}
+
+/** The layer and sound clips a time shows (for the monitor's selection and the inspector). */
+export function layerClipsAt(timeline: Timeline, t: number): LayerClip[] {
+  return timeline.layers.flatMap((layer) => (layer.visible ? layer.clips.filter((clip) => t >= clip.start_s && t < clip.end_s) : []));
 }

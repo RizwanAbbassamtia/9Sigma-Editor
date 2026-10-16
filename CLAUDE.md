@@ -4,7 +4,9 @@
 A standalone Windows desktop video editor for narrated picture-and-clip videos, copied once from
 CashCow Studio's editing engine and the approved Edit room design, then developed on its own.
 Sign-in with ten preset team accounts (`user1` to `user10`, the owner's request of 2026-10-16);
-no automation pipeline. Plan: `docs/PLAN.md`. Current contract: `docs/CONTRACT-v0.1.md`.
+no automation pipeline. Plan: `docs/PLAN.md`. Current contract: `docs/CONTRACT-v0.2.md` (the
+CapCut-style project: media library, layers, sound tracks, frame and colour adjustments, speed,
+the AI voice), on top of `docs/CONTRACT-v0.1.md`.
 
 ## Layout (after the copy)
 - `backend/sigma_editor/` Python 3.12 package (FastAPI API, render engine, CLI `sge`).

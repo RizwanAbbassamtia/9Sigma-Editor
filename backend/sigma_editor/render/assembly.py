@@ -423,6 +423,10 @@ def plan_layout(
         if not image.is_file():
             raise RenderError(f"The picture for scene {position + 1} is missing: {image}")
         images[position] = (image, _image_size(image))
+        if scene.clip is not None:  # a clip scene (v0.2): the picture is its poster frame
+            clip_file = resolve_path(folder, scene.clip.path)
+            if not clip_file.is_file():
+                raise RenderError(f"The clip for scene {position + 1} is missing: {clip_file}")
     frames_plan = frame_layout(timeline, config)
     kept = list(frames_plan.kept)
     cut_n = frames_plan.cut_n
@@ -450,6 +454,8 @@ def plan_layout(
             config=config,
             folder=folder,
             encoding=encoding,
+            clip=scenes[index].clip,
+            frame=scenes[index].frame,
         )
         jobs[index] = job
         layout.scenes.append(job)
