@@ -45,7 +45,7 @@ export function VoiceCard() {
     });
 
   return (
-    <Card id="voice" title="AI voice" description={`Make a narration or a sound clip from text with ${provider}. The key is yours: it is kept on this computer only and used only when you press "Make the voice".`}>
+    <Card id="voice" title="AI voice (optional)" description={`An extra, not a requirement: the editor does everything without it. If you want a narration or a sound clip made from text, add your own ${provider} key here. It is kept on this computer only and used only when you press "Make the voice".`}>
       <form onSubmit={submit} className="flex max-w-md flex-col gap-4">
         {status.data?.key_set ? (
           <Notice tone="ok" title={`A ${provider} key is saved (${status.data.key_hint})`}>

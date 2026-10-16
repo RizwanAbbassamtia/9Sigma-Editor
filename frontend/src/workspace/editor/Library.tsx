@@ -399,10 +399,10 @@ function VoiceSection() {
   };
   return (
     <>
-      <SectionTitle>AI voice</SectionTitle>
+      <SectionTitle>AI voice (optional)</SectionTitle>
       <div className="flex flex-col gap-2 px-3 pb-3">
         {!keySet ? (
-          <p className="text-[11px] text-ink-faint">Add your {VOICE_PROVIDER_LABEL} API key under Settings, AI voice, and the voices appear here.</p>
+          <p className="text-[11px] text-ink-faint">Optional: if you want voices made from text, add your {VOICE_PROVIDER_LABEL} API key under Settings, AI voice, and the voices appear here. Everything else works without it.</p>
         ) : (
           <>
             <textarea value={text} onChange={(event) => setText(event.target.value.slice(0, MAX_VOICE_TEXT_CHARS))} rows={4} placeholder="What the voice should say. One or more sentences; blank lines make paragraphs." aria-label="Text for the voice" className="ws-focus w-full rounded-md border border-ed-line bg-ed-raised p-1.5 text-[12px] text-ink placeholder:text-ink-faint" />

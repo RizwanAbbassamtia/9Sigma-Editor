@@ -33,10 +33,11 @@ When a newer version is published, a notice appears at the top of the app with *
    starts, its frame (position, scale, rotation, opacity, crop, flips), its colour (brightness,
    contrast, colour) and its sound. Layers and sound tracks are added with the two buttons on
    the timeline toolbar; their lanes have show, lock and mute buttons.
-4. **AI voice** (under the **Text** tab): type what the voice should say, pick a voice and press
-   **Make the voice**: it goes on a sound track at the playhead, or becomes the narration (the
-   scenes and captions then follow its words). It needs your ElevenLabs API key under
-   **Settings > AI voice**; this is the one thing in the app that uses the internet.
+4. **AI voice** (optional, under the **Text** tab): if you want a voice made from text, type
+   what it should say, pick a voice and press **Make the voice**: it goes on a sound track at
+   the playhead, or becomes the narration (the scenes and captions then follow its words). It
+   needs your own ElevenLabs API key under **Settings > AI voice**; this is the one thing in
+   the app that uses the internet, and the editor does everything else without it.
 5. **Render**: tick the sizes, pick the quality (Standard, High, Best) and, for YouTube, the
    upload preset, then **Render**. Progress shows on each size; **Stop** cancels.
 6. **Export** (in the Render menu) puts the rendered files, a poster frame and `export.txt`

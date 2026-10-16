@@ -14,7 +14,9 @@ image time", with Adobe Premiere Pro as the reference for the feature set). Ever
 2. The scene track stays the backbone of the video: the length of the video is the end of the
    last scene, the narration keeps the two-clock timing of v0.1, and everything new (layers,
    sound tracks) sits on top of or under it and is cut off at the end of the last scene.
-3. The AI voice is the one feature that talks to a service on the internet. It needs the
+3. The AI voice is optional (the owner, 2026-10-16: "that voice should be optional; if we need
+   to use it, otherwise keep"): the editor does everything without it, and it only appears as
+   usable once a key is added. It is the one feature that talks to a service on the internet. It needs the
    person's own API key, saved on this laptop only (never in the repo, never in `settings.json`
    where Settings shows it, never in an edit's folder). Without a key, everything else works as
    before. The provider is ElevenLabs (the owner wrote "ai33"; no service of that name exists,
