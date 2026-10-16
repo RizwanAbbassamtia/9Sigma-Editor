@@ -115,8 +115,9 @@ update check reads `RizwanAbbassamtia/9Sigma-Editor` releases. `docs/INSTALL.md`
    by length (`words_source: "estimated"`).
 4. **Scene plan.** The timeline builder copied from CashCow takes its scene list as a
    `StoryboardDoc` (`models/storyboard.py`); that model is kept, trimmed to the scene fields, as
-   the app's internal scene plan. It is never shown as a storyboard (the Storyboard tab stays
-   v0.3). `models/edit_input.py` is the form of "New edit from files".
+   the app's internal scene plan. It is never shown as a storyboard (there is no storyboard tab
+   in this app, by the owner's decision of 2026-10-14). `models/edit_input.py` is the form of
+   "New edit from files".
 5. **Export** writes `export.txt` (name, length, sizes, quality, a line per file with its
    SHA-256), `checksums.sha256` (the usual `<hash>  <file>` list) and `export.json` into
    `<exports_dir>/<YYYY-MM-DD>_<name-slug>/`.

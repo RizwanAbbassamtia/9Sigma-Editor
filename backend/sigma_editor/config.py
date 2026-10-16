@@ -24,15 +24,16 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field, ValidationError, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from .models.transitions import (
-    DEFAULT_MOTION_STYLE,
-    DEFAULT_TRANSITION_PACK,
-    MotionStyle,
-    TransitionPack,
-)
 from .storage.settings_store import SettingsStore
 
 log = logging.getLogger(__name__)
+
+# The same ids as models/transitions.py (the render engine's own); repeated here so the
+# settings load without the engine.
+TransitionPack = Literal["cinematic", "clean", "dynamic"]
+DEFAULT_TRANSITION_PACK: TransitionPack = "cinematic"
+MotionStyle = Literal["ken_burns", "parallax"]
+DEFAULT_MOTION_STYLE: MotionStyle = "ken_burns"
 
 SETTINGS_FILE = "settings.json"
 ENV_FILE = ".env"
